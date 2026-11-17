@@ -1,0 +1,613 @@
+# MASTER BUILD PROMPT
+## SKE — Export Documents & Realisation Tracker
+### Organisation: S K Enterprises
+
+You are a senior software architect, full-stack engineer, database designer, financial workflow specialist and QA engineer. Build a custom, production-oriented, multi-user web application for S K Enterprises named **SKE — Export Documents & Realisation Tracker**.
+
+This is a business-critical application for managing export invoices, Shipping Bills, payment/FIRC records, payment allocations, BRC/eBRC documents, incentives, realisation tracking, reconciliation, audit history and Excel reports.
+
+Follow this specification as the authoritative requirement. Do not silently remove requirements, substitute technologies, change financial rules, invent missing source data, or claim that unimplemented features work.
+
+---
+
+## 1. NON-NEGOTIABLE TECHNOLOGY CONSTRAINTS
+
+### Required architecture
+- Frontend: React + TypeScript.
+- Backend: Node.js + Express + TypeScript.
+- Database access: Prisma ORM with versioned migrations.
+- Database: PostgreSQL hosted on a self-managed VPS.
+- Document storage: private server-side filesystem, with paths and metadata stored in PostgreSQL.
+- Deployment: Docker Compose or an equally reproducible deployment approach appropriate to the chosen VPS.
+- HTTPS in production.
+- Local libraries for PDF processing, Excel processing and OCR where feasible.
+
+### Absolutely prohibited
+- Firebase Authentication.
+- Cloud Firestore.
+- Firebase Realtime Database.
+- Firebase Storage.
+- Firebase Cloud Functions.
+- Firebase Admin SDK or other Firebase SDKs.
+- Firebase configuration files, rules, deployment configuration or environment variables.
+- Supabase or another third-party hosted database service.
+- Gemini API, OpenAI API or other external/paid AI APIs.
+- Cloud OCR, external document-extraction APIs, or external bank/document integrations.
+- Any hidden external service required for the core business workflow.
+
+The application may use its own internal backend endpoints to communicate between its frontend, backend and PostgreSQL. These are part of the custom application and are not external third-party APIs.
+
+Do not store the production business database solely in localStorage or IndexedDB. Browser storage may be used for temporary UI state only, not as the authoritative record.
+
+Do not put database credentials, session secrets or other server secrets in frontend code.
+
+If a requested capability cannot be implemented under these constraints, explain the limitation and provide a working local/server-side alternative or a clearly marked manual-review workflow. Never silently add a prohibited service.
+
+---
+
+## 2. SOURCE FILES AND PRE-BUILD INSPECTION
+
+Inspect the supplied files if they are actually available in the project:
+
+1. `Export_Realisation_Tracker_FY2026-27_v3.xlsm`
+2. `SKE_Export_Documents_Realisation_Tracker_PRD_v1.6.docx` or PDF
+3. `SKE-26-27-020-Invoice.pdf`
+4. `020.pdf` — Shipping Bill
+5. `SKE-26-27-20-FIRC.pdf`
+6. `SKE-26-27-20.pdf` — DGFT Statement of Bank Realisation
+7. `BL SKE-26-27-20.pdf` — Bill of Lading/transport document
+
+Do not state that a file has been inspected if it is unavailable or unsupported.
+
+Before building financial logic:
+- Inventory all workbook worksheets, including hidden sheets where accessible.
+- Inspect the main Export Tracker, New Entry, Invoice Lookup, Quick View, Summary, Consignee Summary, consignee ledger sheets, Consignee Master and Bank Master.
+- Inspect column names, column order, formulas, formatting, named ranges, dropdowns, data validation, conditional formatting, protected ranges and VBA components where technically possible.
+- Document the mapping from every relevant workbook field to the application database and document source.
+- Identify formulas, macros or workbook behaviours that cannot be reproduced automatically.
+- Check the apparent tracker-range discrepancy: Export Tracker extends through row 605 while Quick View references appear to end at row 604.
+- Compare the sample documents with their corresponding tracker row and record all discrepancies.
+
+First produce:
+1. A source-file inventory.
+2. A worksheet/column inventory.
+3. A field-mapping table.
+4. A proposed relational schema.
+5. A list of unresolved business questions.
+6. A phased implementation plan.
+7. A test plan.
+
+Do not invent values to fill gaps in the sources. Preserve source-specific values separately when they differ.
+
+---
+
+## 3. BUSINESS OBJECTIVES
+
+The application must:
+- Replace repetitive Excel-based shipment and payment entry.
+- Store original documents against the correct invoice/shipment and payment.
+- Extract supported fields from uploaded documents locally.
+- Allow an Admin to review and correct extracted values before saving.
+- Maintain a persistent, shared PostgreSQL database for multiple authorised users.
+- Track payments and allocations without double-counting a payment.
+- Track BRC/eBRC details and deadlines.
+- Track incentive claims, receipts and outstanding balances.
+- Provide invoice search, dashboards, reports and individual document downloads.
+- Generate Excel exports based on the current database.
+- Keep an audit trail of important actions.
+- Support validated historical-data migration.
+- Exclude legacy rows that have no FIRC under the confirmed import rule.
+
+The application database is the system of record. Excel is an import/export and reporting format, not the production database.
+
+---
+
+## 4. USER ROLES AND ACCESS CONTROL
+
+There are exactly three roles:
+
+### Super Admin / Owner
+- Full application access.
+- Create, edit, activate and deactivate Admin accounts.
+- Manage masters and configuration.
+- Manage shipments, documents, payments, allocations, incentives and BRC records.
+- View reports and audit history.
+- Export authorised data.
+
+### Admin
+- Full operational access to business records.
+- Create/edit shipments and upload documents.
+- Review extracted values and confirm them.
+- Manage payments, allocations, incentives, BRC records, masters and reports.
+- Cannot create, edit, deactivate or promote Admin or Super Admin accounts.
+- Cannot grant themselves higher permissions.
+
+### Viewer
+- Read-only access to permitted shipments, dashboards, reports and records.
+- Cannot create, edit, delete, upload, replace, allocate or modify data.
+- Cannot bypass read-only restrictions by sending direct backend requests.
+- May download/view records and documents only where permitted by the access policy.
+
+There is no Staff role.
+
+Enforce permissions on the server for every protected operation. Hiding a button in the frontend is not sufficient.
+
+Implement secure authentication, password hashing, session management, login/logout, session expiry and appropriate protections against common web vulnerabilities. Use HTTPS in production. Do not expose secrets in logs or frontend bundles.
+
+---
+
+## 5. APPLICATION NAVIGATION AND PAGES
+
+Build a responsive professional business interface with consistent spacing, typography, forms, tables, status labels and accessible controls.
+
+Required pages:
+1. Login.
+2. Dashboard.
+3. Shipment List.
+4. New Shipment.
+5. Shipment/Invoice Detail.
+6. Edit Shipment.
+7. Document Upload and Review.
+8. Invoice Lookup.
+9. Payments and Allocations.
+10. BRC/eBRC Management.
+11. Incentive Tracking.
+12. Quick View.
+13. Summary Reports.
+14. Consignee Summary.
+15. Consignee Master.
+16. Bank Master.
+17. Excel Import/Export.
+18. Audit History.
+19. User Management, Super Admin only.
+20. Application Settings, with permissions.
+
+Provide global search and appropriate financial-year, consignee, payment-status, BRC-status, incentive-status and review-status filters. Use pagination for large tables.
+
+A shipment detail page must have clearly separated sections:
+- Invoice and shipment data.
+- Original documents and individual download actions.
+- Extracted fields and review statuses.
+- Linked payment records and allocations.
+- BRC/eBRC references and dates.
+- Incentive amounts, receipts and outstanding balances.
+- Calculated values and validation warnings.
+- Change history.
+
+Do not deliver only a dashboard mockup. All controls must connect to working application logic or be clearly identified as not yet implemented.
+
+---
+
+## 6. SHIPMENT AND INVOICE DATA
+
+Support financial-year selection and invoice identity.
+
+Preserve both:
+- The invoice number as entered/displayed.
+- A normalised invoice key for duplicate detection and lookup.
+
+The known variants `SKE/26-27/020`, `SKE-26-27-20` and `SKE PI 26 27 020` are intended to resolve to the same invoice identity under the current rule. Implement and test the normalisation carefully; do not merge unrelated invoice numbers.
+
+Prevent duplicate invoice identities within the same financial year, with an appropriate warning and authorised update flow.
+
+Store applicable source fields identified in the workbook, including:
+- Invoice number and invoice date.
+- Shipping Bill number and Shipping Bill date.
+- Port code.
+- Consignee.
+- Package count.
+- Invoice value in USD.
+- FOB value in INR.
+- Shipping Bill exchange rate.
+- Drawback, RoDTEP and RoSCTL amounts.
+- Incentive receipt statuses and dates.
+- Payment received date and payment amounts.
+- Received exchange rate.
+- Bank.
+- IRM/inward number.
+- Sender reference.
+- BRC number and BRC date.
+- USD difference and other applicable calculated fields.
+- Remarks and additional tracker fields confirmed during source inspection.
+
+Do not force all data into one table if it should be relationally separated. Preserve applicable source workbook fields, formulas and reporting requirements in the data model and export mapping.
+
+---
+
+## 7. DOCUMENT MANAGEMENT
+
+Required document categories:
+- Commercial Invoice.
+- Shipping Bill.
+- FIRC/payment evidence.
+- Bill of Lading/transport document.
+- BRC Copy 1.
+- BRC Copy 2.
+- Additional documents.
+
+Commercial Invoice, Shipping Bill and FIRC/payment evidence are required in the standard shipment workflow. Bill of Lading and BRC requirements must follow their defined optional/conditional rules.
+
+### Mandatory FIRC rule
+A valid FIRC/payment record must be linked before a shipment can be saved.
+
+The system must distinguish the existence of FIRC evidence from the amount allocated to an invoice. A payment may be shared across multiple invoices using separate allocation records.
+
+### BRC rules
+- Single mode: exactly one BRC file.
+- Multiple mode: exactly two separate BRC files.
+- Keep the two files separate, independently named and downloadable.
+- Do not silently combine two files into one.
+- Do not infer a payment amount from BRC files.
+- Preserve BRC number, document/issue date and realisation date as separate fields.
+- Do not assume the meaning of each file in Multiple mode until confirmed by the business.
+
+### File storage
+Store files on the server in a private directory organised by financial year and normalised invoice/shipment identity, for example:
+
+`storage/FY2026-27/SKE-26-27-020/Commercial-Invoice.pdf`
+
+Use database metadata for all document associations. Metadata must include document type, original filename, safe stored filename/path, shipment/payment association, uploaded by, uploaded at, version, size and relevant status.
+
+Provide individual upload, preview, download, replacement and authorised removal actions. Preserve audit history for replacement/removal; do not destroy the only audit evidence of a prior version.
+
+Do not expose files using public or guessable URLs. Every file access must validate the signed-in user's permission and the document's database relationship.
+
+Validate file types and sizes. Prevent path traversal and unsafe file handling.
+
+---
+
+## 8. DOCUMENT EXTRACTION WITHOUT EXTERNAL APIs
+
+Use local/server-side libraries only.
+
+### Extraction strategy
+- Commercial Invoice: local PDF text extraction and rules for known layouts.
+- Shipping Bill: local PDF text extraction and rules for supported layouts.
+- FIRC: rules for the known bank template.
+- BRC/eBRC: extract references, dates and amounts from supported text layouts.
+- Bill of Lading: local text extraction; scanned files may require OCR or manual review.
+- Scanned PDFs: use a locally installed OCR engine only if it is actually integrated and tested.
+
+Every extracted field must be editable. Display extracted values and the source document side by side where practical.
+
+Use review states such as:
+- Extracted.
+- Needs review.
+- Missing.
+- Confirmed.
+- Manually entered.
+
+Where feasible, retain source page and text snippets to support review. If confidence scoring is unavailable, use a review status rather than inventing a confidence percentage.
+
+Never guess unreadable fields. Keep them blank and highlight them. Require an Admin to confirm extracted fields before saving the shipment.
+
+Provide manual entry and correction as a complete fallback. The application must remain usable when extraction fails.
+
+Do not use an external AI API as a fallback.
+
+---
+
+## 9. PAYMENT RECORDS AND ALLOCATIONS
+
+Create a separate `payments` table for FIRC/inward payment records and a `payment_allocations` table to link payments to invoices.
+
+One payment can be linked to multiple invoices. The original payment amount must be stored once, not duplicated for every invoice.
+
+For each payment:
+- Store inward/IRM number.
+- Store sender reference separately.
+- Store currency and verified payment amount.
+- Store INR amount where available.
+- Store value date.
+- Store credit date.
+- Store FIRC issue date separately where available.
+- Store bank, purpose code, exchange rate and relevant source information.
+- Link original FIRC document evidence.
+
+Use the following rule:
+
+Available Payment Balance = Verified Payment Amount − Active Allocations.
+
+Each new allocation must be no greater than:
+- The remaining available payment balance.
+- The invoice balance due.
+
+Enforce these rules on the backend and within a database transaction. Use appropriate row locking, serializable logic or another verified concurrency-safe strategy to prevent two users from over-allocating the same payment.
+
+When allocations are edited or reversed, recalculate affected balances and record the action in the audit history.
+
+Support invoice payment states:
+- Unpaid.
+- Part paid.
+- Fully paid.
+- Excess received.
+- Review required.
+
+Define and test how excess payments are represented without silently creating invalid allocations.
+
+Use decimal-safe monetary types. Do not use floating-point arithmetic for authoritative financial calculations.
+
+---
+
+## 10. FINANCIAL CALCULATIONS AND VALIDATION
+
+Implement authoritative calculations in the backend.
+
+### Required calculations
+- Invoice balance due based on the approved invoice-currency allocation method.
+- Available payment balance.
+- Payment received totals.
+- Part-paid/full-paid/excess status.
+- Received exchange rate where valid USD and INR values exist.
+- FOB INR comparison against source USD and Shipping Bill rate.
+- Incentive outstanding balances.
+- Applicable tracker formula equivalents.
+- Summary totals and reports.
+
+### Required checks
+- Invoice identity in the document versus the selected shipment.
+- Invoice item total versus invoice total, when line-item data is present.
+- Verified payment against invoice value.
+- Shipping Bill USD/rate/FOB INR comparison.
+- Invoice date versus Shipping Bill date.
+- Financial-year consistency.
+- Consignee and bank master matches.
+- IRM date-prefix check against FIRC credit date where the source convention supports it.
+- BRC missing references/dates and upcoming deadlines.
+- Cross-document discrepancies, including vessel discrepancies where present.
+- Duplicate invoice identities within a financial year.
+
+Distinguish:
+1. Blocking errors that prevent saving.
+2. Warnings that require review but do not automatically prevent saving.
+3. Informational comparisons.
+
+Do not silently change a source value to make a validation pass. Preserve source-specific values and display the discrepancy.
+
+Do not label an arithmetic difference as a confirmed forex gain without an approved methodology.
+
+---
+
+## 11. INCENTIVE TRACKING
+
+Track each incentive independently:
+- Drawback.
+- RoDTEP.
+- RoSCTL.
+
+Store:
+- Amount claimed/expected.
+- Receipt status.
+- Amount received.
+- Receipt date.
+- Outstanding balance.
+- Relevant remarks and supporting document where applicable.
+
+Do not implement incentive tracking as a checkbox alone. Support partial receipt if required by the confirmed business rules.
+
+Show incentive totals and pending amounts in the dashboard and reports. Validate calculations against approved rules and source workbook behaviour.
+
+---
+
+## 12. BRC/eBRC MANAGEMENT
+
+Store separately:
+- BRC number.
+- BRC document/issue date.
+- Bank realisation date.
+- Net realised amount and currency where available.
+- BRC upload mode.
+- Linked BRC files.
+- Due date/deadline.
+- Status and remarks.
+
+Allow reminders to be configured. Do not hard-code a statutory or banking deadline unless the business has confirmed the applicable rule.
+
+The Shipping Bill may contain a BRC realisation deadline/date. Keep it distinct from the date printed on an issued BRC/eBRC statement and from the bank realisation date.
+
+Do not integrate directly with ICEGATE, a bank or DGFT through external APIs.
+
+---
+
+## 13. DATABASE DESIGN
+
+Create a relational PostgreSQL schema with suitable foreign keys, unique constraints, indexes, timestamps and transaction boundaries.
+
+Expected entities include:
+- users.
+- financial_years.
+- shipments.
+- shipment_data or an equivalent well-structured shipment field model.
+- invoice_items.
+- documents.
+- payments.
+- payment_allocations.
+- brc_records.
+- incentive_records.
+- consignee_master.
+- bank_master.
+- audit_logs.
+- generated_files.
+- app_settings.
+
+Choose normalised relationships rather than duplicating a payment record for each invoice. Avoid a single unstructured JSON field as the sole storage for core business records.
+
+Use Prisma migrations and seed only non-sensitive development data. Production secrets must be supplied separately.
+
+Add appropriate database indexes for financial year, invoice key, invoice number, Shipping Bill number, consignee, IRM/payment reference, BRC number and dates.
+
+Store audit records for important creates, edits, replacements, deletions/deactivations, allocation changes, downloads where supported, login/security events and permission failures.
+
+---
+
+## 14. EXCEL IMPORT, EXPORT AND COMPATIBILITY
+
+The existing XLSM workbook is the source reference for field mapping and applicable reports. The new app's database is authoritative.
+
+Required outputs:
+- Financial-year tracker workbook.
+- Invoice-wise Excel export.
+- Consignee summary.
+- Quick View/report equivalents.
+- Payment/allocation report.
+- Incentive report.
+- BRC status report.
+- Individual stored-document downloads.
+
+Inspect the source workbook before claiming that all columns, formulas and validations are preserved. Implement the approved mappings and equivalent business logic. Do not claim to execute VBA macros in the browser.
+
+For historical migration:
+- Inspect and validate records before import.
+- Exclude rows without FIRC.
+- Detect duplicates.
+- Produce an import validation report.
+- Do not silently discard rows or alter source values.
+- Keep a clear report of accepted, rejected and warning records.
+
+For export:
+- Generate from current PostgreSQL records.
+- Preserve relevant field order and names.
+- Apply approved formulas and formatting where feasible.
+- Test generated workbooks against known source rows.
+- Report any macro behaviour or workbook feature that cannot be preserved.
+
+---
+
+## 15. DASHBOARD, REPORTS AND SEARCH
+
+Dashboard metrics:
+- Total shipments and invoices by financial year.
+- Invoice value in USD.
+- Payment received and outstanding.
+- Unpaid, part-paid, fully paid and excess-payment invoices.
+- Incentive claimed, received and pending.
+- BRC/eBRC complete, missing and due soon.
+- Documents awaiting review.
+- Recent activity and important warnings.
+
+Use backend-derived values, not hard-coded dashboard figures.
+
+Search and filters:
+- Financial year.
+- Invoice number and normalised key.
+- Shipping Bill number.
+- Consignee.
+- IRM/inward number.
+- BRC number.
+- Payment status.
+- Incentive status.
+- BRC status.
+- Date range.
+- Review status.
+
+Use pagination and predictable sorting. Ensure report totals use the same approved calculation logic as individual shipment records.
+
+---
+
+## 16. SECURITY, BACKUPS AND DEPLOYMENT
+
+- Keep database and session secrets in server-side environment variables.
+- Supply an `.env.example` containing placeholders only.
+- Do not commit real secrets.
+- Do not expose the database directly to the public internet.
+- Use HTTPS in production.
+- Validate inputs on the backend.
+- Protect authentication/session routes and sensitive mutations.
+- Apply role checks to every protected operation.
+- Validate file uploads and download permissions.
+- Configure database and document backups.
+- Document and test restoring both database records and their associated files.
+- Ensure a database restore and file restore can be reconciled.
+- Include logging that excludes passwords, session tokens and unnecessary sensitive data.
+- Provide setup, migration, testing, backup and deployment documentation.
+
+Use Docker Compose where appropriate for the application, PostgreSQL and supporting local services. Document volumes and persistent storage so containers can be recreated without losing data.
+
+Do not claim the app is deployed or production-ready merely because the frontend renders.
+
+---
+
+## 17. TESTING AND ACCEPTANCE CRITERIA
+
+The application is not complete until the applicable tests pass.
+
+### Architecture
+- No Firebase or Supabase dependencies or configuration.
+- No external/paid API required for the core workflow.
+- Frontend and backend start successfully.
+- PostgreSQL migrations run successfully.
+- Records persist across browser sessions and server restarts.
+- Private files persist and remain associated with the correct database records.
+
+### Permissions
+- Super Admin can manage Admin accounts.
+- Admin cannot manage Admin/Super Admin accounts.
+- Viewer cannot mutate records through UI or direct requests.
+- Every document download checks permissions.
+
+### Shipments and documents
+- Shipment save is blocked without linked valid FIRC/payment evidence.
+- Single BRC mode rejects zero or more than one file.
+- Multiple BRC mode rejects any count other than two.
+- Uploaded files are linked to the correct shipment/payment.
+- Replacing a file preserves the required audit/version history.
+- Missing or unreadable extracted fields are never guessed.
+
+### Payments
+- One payment can be allocated across multiple invoices.
+- Available balance and invoice balance are correct.
+- Over-allocation is rejected.
+- Concurrent allocation attempts cannot overspend a payment.
+- Reversals/edits update balances and audit history.
+- Payment value, credit, issue and realisation dates remain distinct.
+
+### Data and exports
+- Invoice-number normalisation passes positive and negative test cases.
+- Duplicate invoice detection respects financial-year boundaries.
+- Source-specific exchange rates are preserved.
+- Historical rows without FIRC are excluded.
+- Exported values match approved source mappings and calculations.
+- Test results identify unsupported workbook/macros behaviour.
+
+### Operations
+- Build and automated tests run successfully.
+- Backup and restore procedures are tested.
+- Deployment steps are documented.
+- No production credentials are committed.
+- All incomplete features are explicitly listed.
+
+---
+
+## 18. REQUIRED IMPLEMENTATION SEQUENCE
+
+Work in this order:
+
+**Phase 1:** Inspect source files and produce the inventory, field mapping, data model proposal, unresolved questions and test plan.
+
+**Phase 2:** Implement the UI shell, navigation, forms, tables and responsive design using clearly marked development data.
+
+**Phase 3:** Implement the Express backend, PostgreSQL schema, Prisma migrations, authentication, server-side role checks and audit history.
+
+**Phase 4:** Implement secure document upload/download, local PDF extraction, review and manual correction.
+
+**Phase 5:** Implement payment records, allocations, financial calculations, BRC/eBRC and incentives.
+
+**Phase 6:** Implement Excel export, historical-data validation, import and reports.
+
+**Phase 7:** Run acceptance tests, security checks, concurrency tests, export comparisons, backup/restore tests and deployment verification.
+
+Do not skip the source inspection phase. Do not move financial business rules into frontend-only calculations.
+
+At the end of every phase, report:
+- Files created or changed.
+- Features implemented.
+- Commands executed.
+- Tests actually run and their results.
+- Known limitations.
+- Remaining requirements.
+- Any unresolved business decision.
+
+Never claim a test passed unless it was run. Never claim a feature works unless it has been implemented and verified.
+
+### Start now
+Begin with Phase 1 only. Inspect the supplied source files, report which files were actually accessible, produce the workbook/document field mapping and propose the schema and phased plan. Do not generate Firebase code or silently replace PostgreSQL with browser storage. After the inspection report, proceed with the implementation phases in order.

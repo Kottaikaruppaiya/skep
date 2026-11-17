@@ -1,0 +1,1247 @@
+# FINAL MASTER IMPLEMENTATION PROMPT
+# SKE — B2B GST ENTRY MANAGEMENT MODULE
+## Existing Application Redesign + Monthly Organisation + Excel Upload + Database Integration
+
+You are working on my existing application:
+
+**SKE — Export Documents & Realisation Tracker**
+
+I want you to completely design and implement the B2B GST Entry module inside my existing application.
+
+I have provided two reference files:
+
+1. `B2B_Data_AI_Studio.csv` — the actual B2B source data and column structure.
+2. B2B GST Entry wireframe image — the visual design reference for the module.
+
+Use both references carefully.
+
+The CSV defines the data structure and source fields. The wireframe defines the intended page layout and user experience.
+
+This is an existing application. You must inspect, modify and extend the existing codebase.
+
+**DO NOT CREATE A NEW APPLICATION OR REBUILD THE EXISTING PROJECT.**
+
+Preserve existing working features, architecture, authentication, database configuration and unrelated application modules.
+
+---
+
+# 1. PROJECT OBJECTIVE
+
+Build a professional B2B GST Entry Management Module that allows authorised users to:
+
+- Create B2B GST invoices manually.
+- Upload completed Excel workbooks repeatedly.
+- Import B2B invoice records into PostgreSQL.
+- Automatically identify suppliers.
+- Organise all invoice records into their respective GSTR monthly sections.
+- View monthly invoice summaries.
+- Search and filter invoices.
+- Manage supplier information.
+- Review GST values.
+- Generate reports.
+- Export records to Excel-compatible files.
+- Track import history.
+
+The application must support continuous monthly operations.
+
+It must not be a one-time Excel migration tool.
+
+Whenever a new invoice is created or an Excel workbook is uploaded, the application must automatically place the invoice in the correct monthly section based on its GSTR Period.
+
+---
+
+# 2. MANDATORY TECHNOLOGY ARCHITECTURE
+
+Follow the existing project's mandatory architecture:
+
+- Frontend: React + TypeScript + Vite.
+- Backend: Node.js + Express + TypeScript.
+- Database: PostgreSQL on my self-managed VPS.
+- ORM: Prisma.
+- Database migrations: Prisma migrations.
+- File storage: Private server-side filesystem.
+- Deployment: Docker Compose.
+- Production: HTTPS.
+
+Strict requirements:
+
+- Local-first architecture.
+- Zero external cloud dependencies.
+- No Firebase.
+- No Supabase.
+- No external database.
+- No Gemini API.
+- No OpenAI API.
+- No cloud OCR.
+- No paid external AI APIs.
+- No external bank or GST integrations.
+
+PostgreSQL is the system of record.
+
+Excel and CSV files are import/export formats only.
+
+Before implementing, inspect the existing codebase, routing, Prisma schema, APIs, authentication, roles, design system and deployment configuration.
+
+Reuse existing project components and conventions.
+
+---
+
+# 3. STRICT DATA SCOPE — B2B ONLY
+
+The reference CSV was created from the B2B worksheet of the original workbook.
+
+Implement only B2B inward purchase invoice management.
+
+Do not implement:
+
+- MISSING BILLS.
+- B2BA.
+- B2B-CDNR.
+- Other GST worksheets.
+- GST refund eligibility.
+- Refund calculations.
+- GAIN/LOSS calculations.
+- Unrequested GST workflows.
+
+This module manages supplier invoices.
+
+Do not confuse supplier information with export consignee information.
+
+---
+
+# 4. VISUAL DESIGN — FOLLOW THE PROVIDED WIREFRAME
+
+Use the supplied wireframe as the primary visual reference.
+
+The interface should follow a professional ERP-style design.
+
+Design characteristics:
+
+- Clean white and light-background workspace.
+- Dark navy-blue sidebar.
+- Blue primary buttons and highlights.
+- Consistent typography.
+- Subtle borders and shadows.
+- Rounded cards.
+- Professional financial dashboard.
+- Clear table hierarchy.
+- Responsive layouts.
+- Consistent spacing and alignment.
+
+Use the existing application's branding and design system where appropriate.
+
+Do not redesign unrelated application modules.
+
+## Main GST Navigation
+
+Create this navigation structure:
+
+1. B2B Dashboard
+2. Monthly GST Entries
+3. B2B Invoice Register
+4. Add B2B Invoice
+5. Supplier Master
+6. Excel / CSV Import
+7. Reports & Export
+
+The Monthly GST Entries section is an important new requirement.
+
+It must be a permanent part of the application.
+
+---
+
+# 5. MONTHLY-WISE GST ENTRY ORGANISATION — CRITICAL REQUIREMENT
+
+I want all B2B GST entries organised month by month.
+
+The application must automatically create and maintain monthly sections.
+
+For example:
+
+- June 2026
+- July 2026
+- August 2026
+- September 2026
+- October 2026
+- November 2026
+
+These are examples, not fixed months.
+
+The application must support all financial years and future months dynamically.
+
+## A. Monthly Organisation Rule
+
+Use the invoice's **GSTR Period** as the primary monthly classification field.
+
+Do not use Invoice Date as the primary monthly classification.
+
+Do not use Filing Date as the primary monthly classification.
+
+These three fields must remain separate.
+
+Example:
+
+An invoice may have:
+
+- Invoice Date: 28 August 2026
+- GSTR Period: September 2026
+- Filing Date: 15 October 2026
+
+This invoice must appear under the **September 2026 GSTR Period section**, not August or October.
+
+## B. Monthly Sections Page
+
+Create a dedicated page named:
+
+**Monthly GST Entries**
+
+Display months in a clear, organised layout.
+
+Each month should have a separate clickable card or section.
+
+Example wireframe:
+
+MONTHLY GST ENTRIES
+
+Financial Year: 2026–27
+
+<Monthly Cards>
+
+June 2026
+- Invoice Count
+- Unique Suppliers
+- Invoice Value
+- Taxable Value
+- Total GST
+
+July 2026
+- Invoice Count
+- Unique Suppliers
+- Invoice Value
+- Taxable Value
+- Total GST
+
+August 2026
+- Invoice Count
+- Unique Suppliers
+- Invoice Value
+- Taxable Value
+- Total GST
+
+September 2026
+- Invoice Count
+- Unique Suppliers
+- Invoice Value
+- Taxable Value
+- Total GST
+
+</Monthly Cards>
+
+The monthly sections must be generated dynamically from actual database records.
+
+Do not hardcode the month names or summary values.
+
+Allow users to navigate to previous and future financial years.
+
+## C. Monthly Detail Page
+
+When the user clicks August 2026, open a dedicated monthly detail page.
+
+Example:
+
+GST / Monthly Entries / August 2026
+
+Display:
+
+Summary Cards:
+- Total Invoices
+- Unique Suppliers
+- Total Invoice Value
+- Total Taxable Value
+- IGST
+- CGST
+- SGST
+- Cess
+- Total GST
+- ITC Available Count
+- Reverse Charge Count
+
+Below the summary cards, display the invoice table containing only invoices belonging to that GSTR Period.
+
+Provide:
+- Supplier search.
+- GSTIN search.
+- Invoice number search.
+- Invoice date filter.
+- Filing date filter.
+- Invoice type filter.
+- Reverse charge filter.
+- ITC availability filter.
+- Sorting.
+- Pagination.
+
+Allow authorised users to:
+- Add a new invoice directly to that month.
+- Edit an existing invoice.
+- View invoice details.
+- Export the selected month's records.
+- View supplier-wise totals for that month.
+
+The selected month must be clearly visible throughout the page.
+
+## D. Automatic Monthly Assignment for Manual Entries
+
+When creating an invoice manually:
+
+1. Require the user to select a GSTR Period.
+2. Save the invoice with that GSTR Period.
+3. Automatically associate it with the correct monthly section.
+4. Update that month's invoice count and financial totals.
+5. Refresh the relevant dashboard and reports.
+
+If the user creates an invoice from inside a specific monthly section, preselect that section's GSTR Period.
+
+The user may change the period only if authorised and before saving.
+
+## E. Automatic Monthly Assignment During Excel Upload
+
+When an Excel workbook is uploaded:
+
+1. Read the GSTR Period of every invoice row.
+2. Validate the period.
+3. Identify the corresponding month.
+4. Assign each invoice to its correct monthly section.
+5. Insert the invoice into PostgreSQL.
+6. Update the corresponding monthly summary.
+
+One uploaded workbook may contain invoices belonging to multiple GSTR periods.
+
+The system must distribute those invoices into their respective monthly sections automatically.
+
+Example:
+
+| Invoice | GSTR Period | Destination |
+|---|---|---|
+| INV-001 | June 2026 | June 2026 |
+| INV-002 | July 2026 | July 2026 |
+| INV-003 | August 2026 | August 2026 |
+| INV-004 | August 2026 | August 2026 |
+| INV-005 | September 2026 | September 2026 |
+
+Do not assign every uploaded invoice to the current month.
+
+Do not assign every invoice to the month in which the workbook was uploaded.
+
+## F. Missing or Invalid GSTR Period
+
+If an imported record has a missing or invalid GSTR Period:
+
+- Do not guess the month using Invoice Date.
+- Do not silently assign the current month.
+- Mark the row as requiring correction.
+- Display the original row number and issue.
+- Allow an authorised user to correct the GSTR Period before importing.
+- Do not save it into a normal monthly section until the period is valid.
+
+## G. Monthly Summary Calculation
+
+Calculate all monthly totals directly from the underlying invoice records.
+
+Total GST:
+
+IGST + CGST + SGST + Cess.
+
+Monthly Invoice Value:
+
+Sum of original Invoice Value values.
+
+Monthly Taxable Value:
+
+Sum of original Taxable Value values.
+
+Unique Suppliers:
+
+Count of distinct supplier GSTINs.
+
+ITC Available Count:
+
+Count of invoices marked Yes in the source field.
+
+Reverse Charge Count:
+
+Count of invoices marked Yes for Reverse Charge.
+
+Do not double-count invoices.
+
+Do not store manually editable monthly totals as the source of truth.
+
+If monthly summary caching is used, it must remain consistent with invoice records.
+
+## H. Financial Year Organisation
+
+Provide a Financial Year selector.
+
+Use Indian financial year conventions:
+
+- April to March.
+
+Example:
+
+FY 2026–27 includes April 2026 through March 2027.
+
+Allow users to switch financial years.
+
+Monthly sections must appear in chronological order within the selected financial year.
+
+Also provide a way to locate older records.
+
+---
+
+# 6. B2B SOURCE DATA STRUCTURE
+
+The reference CSV contains these 21 fields.
+
+Preserve all source fields.
+
+| No. | Source Field |
+|---|---|
+| 1 | GSTIN of supplier |
+| 2 | Trade/Legal name |
+| 3 | Invoice number |
+| 4 | Invoice type |
+| 5 | Invoice date |
+| 6 | Invoice value |
+| 7 | Place of supply |
+| 8 | Reverse charge |
+| 9 | Taxable value |
+| 10 | Integrated Tax |
+| 11 | Central Tax |
+| 12 | State/UT Tax |
+| 13 | Cess |
+| 14 | GSTR period |
+| 15 | Filing date |
+| 16 | ITC availability |
+| 17 | Reason |
+| 18 | Applicable % of tax rate |
+| 19 | Source |
+| 20 | IRN |
+| 21 | IRN date |
+
+Requirements:
+
+- Preserve source-field meanings.
+- Use clear labels in the UI.
+- Maintain explicit field mapping.
+- Support optional and blank values.
+- Do not silently change source data.
+- Preserve the original source period value when appropriate, alongside a normalised period key for reliable grouping.
+
+---
+
+# 7. DATABASE DESIGN
+
+Use the existing PostgreSQL database and Prisma ORM.
+
+Implement suitable models and migrations.
+
+## A. Supplier Master
+
+Fields:
+
+- id
+- gstin
+- legalName
+- tradeName
+- createdAt
+- updatedAt
+
+Rules:
+
+- GSTIN must be unique.
+- Validate GSTIN format.
+- Link invoices to suppliers.
+- Prevent duplicate suppliers.
+
+## B. B2B Invoice
+
+Include all 21 source fields, with appropriate types.
+
+Additional system fields:
+
+- id
+- supplierId
+- importBatchId
+- createdAt
+- updatedAt
+- createdBy
+- updatedBy
+
+Financial values must use PostgreSQL Decimal.
+
+Use proper date types for invoice date, filing date and IRN date.
+
+Store GSTR Period in a way that supports reliable monthly grouping and financial-year filtering.
+
+Use a canonical period key or appropriate relational structure. Do not rely on inconsistent display strings alone.
+
+## C. Import Batch
+
+Fields:
+
+- id
+- fileName
+- uploadedAt
+- uploadedBy
+- totalRows
+- successfulRows
+- failedRows
+- duplicateRows
+- importStatus
+
+This is operational import history only.
+
+Do not recreate the removed application audit-history system.
+
+---
+
+# 8. B2B DASHBOARD
+
+Create the dashboard according to the wireframe.
+
+Summary cards:
+
+1. Total B2B Invoices
+2. Unique Suppliers
+3. Invoice Value
+4. Taxable Value
+5. IGST
+6. CGST
+7. SGST
+8. Cess
+9. Total GST
+10. ITC Available
+11. Reverse Charge
+
+Filters:
+
+- Financial Year
+- GSTR Period
+- Invoice Date Range
+- Supplier
+- GSTIN
+- Invoice Type
+- Reverse Charge
+- ITC Availability
+
+Charts:
+
+- Monthly Invoice Count.
+- Monthly Taxable Value.
+- Monthly GST Distribution.
+- Supplier-wise Invoice Value.
+- IGST/CGST/SGST Distribution.
+- ITC Availability Distribution.
+
+All dashboard figures must come from actual database records.
+
+Dashboard filters must affect all relevant cards, charts and tables.
+
+---
+
+# 9. B2B INVOICE REGISTER
+
+Create a professional searchable invoice table.
+
+Display:
+
+- Supplier GSTIN
+- Supplier Name
+- Invoice Number
+- Invoice Date
+- Invoice Type
+- Invoice Value
+- Taxable Value
+- IGST
+- CGST
+- SGST
+- Cess
+- Total GST
+- GSTR Period
+- Filing Date
+- Reverse Charge
+- ITC Availability
+
+Features:
+
+- Search GSTIN.
+- Search supplier name.
+- Search invoice number.
+- Filter by GSTR Period.
+- Filter by financial year.
+- Filter by invoice date.
+- Filter by filing date.
+- Filter by invoice type.
+- Filter by reverse charge.
+- Filter by ITC availability.
+- Sorting.
+- Server-side pagination.
+- View invoice.
+- Edit invoice.
+- Delete invoice with confirmation.
+
+Provide a quick navigation link to the invoice's monthly section.
+
+---
+
+# 10. ADD B2B INVOICE
+
+Follow the supplied wireframe.
+
+Group fields into sections.
+
+## Section 1: Supplier Information
+
+- Supplier GSTIN
+- Trade/Legal Name
+
+Automatically find existing suppliers using GSTIN.
+
+Allow authorised users to add a new supplier when needed.
+
+## Section 2: Invoice Information
+
+- Invoice Number
+- Invoice Type
+- Invoice Date
+- Invoice Value
+- Place of Supply
+- Reverse Charge
+
+## Section 3: Tax Information
+
+- Taxable Value
+- IGST
+- CGST
+- SGST
+- Cess
+- Total GST (calculated)
+
+## Section 4: Return Information
+
+- GSTR Period
+- Filing Date
+- ITC Availability
+- Reason
+- Applicable % of Tax Rate
+
+## Section 5: Additional Information
+
+- Source
+- IRN
+- IRN Date
+
+Important:
+
+- GSTR Period is required.
+- The selected GSTR Period determines the monthly destination.
+- If opened from a monthly detail page, prefill its period.
+- Total GST is calculated from the four tax components.
+- Financial values use precise decimal arithmetic.
+- Do not overwrite Invoice Value or Taxable Value.
+
+---
+
+# 11. REPEATED EXCEL WORKBOOK UPLOAD
+
+This is a permanent application feature.
+
+I need to upload completed Excel workbooks whenever required.
+
+Supported formats:
+
+- XLSX
+- XLS
+- CSV
+
+Add the upload feature under:
+
+GST → Excel / CSV Import.
+
+Use a suitable local Excel library such as ExcelJS or another compatible parser.
+
+No cloud conversion services or external APIs.
+
+## A. Worksheet Detection
+
+When a workbook is uploaded:
+
+1. Read worksheet names.
+2. Detect the B2B worksheet.
+3. Process only B2B.
+4. Ignore other worksheets.
+5. Show the detected worksheet name.
+6. If B2B is missing, stop and display an error.
+
+Never import B2BA, B2B-CDNR or MISSING BILLS.
+
+## B. Automatic Column Mapping
+
+Identify columns by header names rather than fixed column positions.
+
+Support harmless variations in:
+- Capitalisation.
+- Spacing.
+- Header formatting.
+
+Map all 21 source fields to the correct database fields.
+
+If mapping is uncertain:
+- Display the unmatched columns.
+- Allow manual mapping.
+- Do not silently map incorrectly.
+
+## C. Import Preview
+
+Before saving, show:
+
+- File name.
+- Worksheet detected.
+- Total rows.
+- Valid rows.
+- Invalid rows.
+- Duplicate invoices.
+- New suppliers.
+- Existing suppliers.
+- Missing columns.
+- GSTR Period distribution.
+
+Display a preview table with the actual invoice data.
+
+Allow the user to confirm or cancel.
+
+## D. Monthly Distribution Preview
+
+This is mandatory.
+
+Before importing, display how many records belong to each GSTR Period.
+
+Example:
+
+| GSTR Period | New Invoices | Existing Invoices | Invalid Rows |
+|---|---:|---:|---:|
+| June 2026 | 25 | 2 | 0 |
+| July 2026 | 40 | 3 | 1 |
+| August 2026 | 75 | 5 | 0 |
+
+These are illustrative values only.
+
+Calculate the actual numbers from the uploaded workbook.
+
+Allow the user to inspect each period's records before confirming.
+
+## E. Correct Database Storage
+
+After confirmation:
+
+- Match supplier using GSTIN.
+- Create supplier if missing.
+- Reuse existing supplier when found.
+- Link every invoice to its supplier.
+- Map all 21 fields correctly.
+- Store financial values as Decimal.
+- Preserve blank optional fields.
+- Preserve source values.
+- Assign each invoice to its GSTR monthly section.
+- Update monthly summaries through database queries or consistent derived calculations.
+
+Imported invoices must immediately appear in:
+
+- Monthly GST Entries.
+- B2B Invoice Register.
+- Supplier Master.
+- B2B Dashboard.
+- Reports and Exports.
+
+## F. Duplicate Detection
+
+Use a reliable duplicate key:
+
+Supplier GSTIN + Invoice Number + Invoice Type.
+
+Normalise comparison values carefully.
+
+When a duplicate is found, display:
+
+- Existing database record.
+- Uploaded record.
+- Fields that differ.
+- Duplicate classification.
+
+Provide options:
+
+1. Skip duplicate.
+2. Update existing record after confirmation.
+3. Import separately only after explicit confirmation that it is a different invoice.
+
+Never duplicate or overwrite records silently.
+
+## G. Import Modes
+
+Provide:
+
+**Mode 1 — Add New Records**
+- Default mode.
+- Import only new invoices.
+- Skip existing invoices.
+
+**Mode 2 — Review and Update**
+- Compare records.
+- Display differences.
+- Allow authorised users to confirm updates.
+
+Do not implement automatic full replacement or deletion of existing records.
+
+## H. Import Validation
+
+Validate:
+
+- File type.
+- File size.
+- Worksheet name.
+- Headers.
+- GSTIN.
+- Invoice number.
+- Invoice date.
+- GSTR Period.
+- Financial values.
+- Duplicate records.
+
+For missing or invalid GSTR Period:
+- Do not guess from Invoice Date.
+- Mark the row invalid.
+- Allow authorised correction before import.
+
+Use database transactions where appropriate.
+
+Provide row-level errors and a downloadable error report.
+
+## I. Import Result
+
+After import display:
+
+- Total rows processed.
+- Inserted records.
+- Updated records.
+- Skipped duplicates.
+- Failed records.
+- New suppliers created.
+- Records distributed by GSTR Period.
+- Import completion time.
+
+---
+
+# 12. SUPPLIER MASTER
+
+Create a dedicated supplier management page.
+
+Display:
+
+- GSTIN.
+- Supplier Name.
+- Invoice Count.
+- Invoice Value.
+- Taxable Value.
+- Total GST.
+- Latest Invoice Date.
+
+Provide:
+- Supplier search.
+- GSTIN search.
+- Supplier details.
+- Related invoice list.
+- Supplier-wise monthly totals.
+- Edit supplier details.
+
+---
+
+# 13. REPORTS AND EXPORT
+
+Create these reports:
+
+1. Complete B2B Invoice Register.
+2. Supplier-wise Invoice Report.
+3. GSTR Period-wise Report.
+4. GST Tax Summary.
+5. Reverse Charge Report.
+6. ITC Availability Report.
+7. Monthly GST Summary.
+8. Financial Year Summary.
+
+Allow exporting:
+
+- Entire dataset.
+- Selected financial year.
+- Selected GSTR Period.
+- Selected supplier.
+- Filtered invoices.
+
+Export to Excel-compatible CSV or XLSX.
+
+Preserve decimal accuracy and source values.
+
+---
+
+# 14. IMPORTANT GST DATA RULES
+
+1. Total GST = IGST + CGST + SGST + Cess.
+2. Do not assume Invoice Value equals Taxable Value plus Total GST.
+3. Preserve source Invoice Value.
+4. Preserve source Taxable Value.
+5. GSTR Period and Invoice Date are separate.
+6. Filing Date is separate.
+7. Reverse Charge is independent.
+8. ITC Availability reflects the source field.
+9. Do not declare legal ITC eligibility merely because the source says Yes.
+10. Applicable % of Tax Rate is not necessarily the GST tax rate.
+11. Preserve missing values.
+12. Do not silently correct source values.
+13. GSTR Period determines monthly organisation.
+14. Do not use current month or upload date as a substitute for GSTR Period.
+15. Do not infer a missing GSTR Period from Invoice Date.
+
+Display data discrepancies as warnings, not automatic corrections.
+
+---
+
+# 15. USER ROLES AND PERMISSIONS
+
+Preserve the existing three-role model.
+
+## Super Admin
+
+Full access to:
+- Dashboard.
+- Monthly GST Entries.
+- Invoice Register.
+- Create/edit/delete invoices.
+- Supplier Master.
+- Excel uploads.
+- Import review and confirmation.
+- Reports and exports.
+- User management according to existing permissions.
+
+## Admin
+
+Can:
+- View dashboard.
+- View monthly sections.
+- Create/edit/delete invoices.
+- Manage suppliers.
+- Upload Excel/CSV.
+- Review and confirm imports.
+- Export reports.
+
+Cannot manage Admin or Super Admin accounts.
+
+## Viewer
+
+Can:
+- View dashboard.
+- View monthly sections.
+- View invoices.
+- View supplier details.
+- Download permitted reports and exports.
+- Download attached documents where applicable.
+
+Cannot:
+- Create or edit invoices.
+- Delete invoices.
+- Modify suppliers.
+- Upload or import files.
+- Change monthly records.
+
+Enforce all permissions in backend APIs, not just the frontend.
+
+---
+
+# 16. WIREFRAME SCREEN IMPLEMENTATION
+
+Implement these seven primary pages following the supplied visual reference.
+
+## Screen 1 — B2B Dashboard
+
+- Summary cards.
+- Financial Year filter.
+- GSTR Period filter.
+- Monthly invoice chart.
+- GST distribution chart.
+- ITC distribution.
+- Supplier-wise summary.
+
+## Screen 2 — Monthly GST Entries
+
+- Financial Year selector.
+- Monthly cards.
+- Invoice count.
+- Supplier count.
+- Invoice Value.
+- Taxable Value.
+- Total GST.
+- Monthly detail navigation.
+
+## Screen 3 — Monthly Detail Page
+
+- Selected GSTR Period heading.
+- Monthly financial summary.
+- Invoice register for that period.
+- Search and filters.
+- Add invoice.
+- Export monthly records.
+
+## Screen 4 — B2B Invoice Register
+
+- Full invoice table.
+- Search.
+- Filters.
+- Sorting.
+- Pagination.
+- View/edit/delete actions.
+
+## Screen 5 — Add B2B Invoice
+
+- Supplier Information.
+- Invoice Information.
+- Tax Information.
+- Return Information.
+- Additional Information.
+- GSTR Period selection.
+- Automatic monthly assignment.
+
+## Screen 6 — Supplier Master
+
+- Supplier table.
+- GSTIN search.
+- Supplier summary.
+- Supplier details.
+- Related invoices.
+
+## Screen 7 — Excel / CSV Import and Reports
+
+Excel import must show five steps:
+
+1. Upload File.
+2. Map Columns.
+3. Preview & Validate.
+4. Confirm Import.
+5. Import Result.
+
+Include monthly distribution preview.
+
+Reports and exports should be organised in a separate page or tab.
+
+All seven pages must be fully connected to backend APIs and PostgreSQL.
+
+Do not create static visual mockups as the final implementation.
+
+---
+
+# 17. SECURITY AND DATA INTEGRITY
+
+Implement:
+
+- Existing authentication.
+- Backend RBAC.
+- Input validation.
+- Secure file upload.
+- Safe Excel parsing.
+- File size limits.
+- Duplicate detection.
+- Database transactions.
+- Proper financial Decimal handling.
+- Secure error handling.
+- Protection against unauthorised modifications.
+
+Never expose database credentials or secrets in frontend code.
+
+Preserve the existing application's security architecture.
+
+---
+
+# 18. TESTING REQUIREMENTS
+
+Test all major workflows.
+
+## Monthly Organisation Tests
+
+1. Create an invoice with GSTR Period August 2026.
+2. Verify it appears under August 2026.
+3. Create an invoice with GSTR Period September 2026.
+4. Verify it appears under September 2026.
+5. Create an invoice from inside August 2026 and verify the period is prefilled.
+6. Change the period before saving and verify the invoice goes to the selected month.
+7. Upload one workbook containing multiple GSTR Periods.
+8. Verify that records are distributed into their correct months.
+9. Verify financial-year grouping.
+10. Verify that Invoice Date and Filing Date do not determine monthly classification.
+11. Verify missing periods are not automatically guessed.
+12. Verify monthly totals update after creating, editing or deleting invoices.
+
+## Excel Import Tests
+
+1. Upload XLSX.
+2. Upload XLS.
+3. Upload CSV.
+4. Upload workbook with reordered columns.
+5. Upload workbook with missing columns.
+6. Upload workbook without B2B worksheet.
+7. Upload the same workbook twice.
+8. Upload workbook with existing and new invoices.
+9. Review and update an existing invoice.
+10. Test invalid dates.
+11. Test invalid numeric values.
+12. Test missing GSTR Period.
+13. Verify supplier linking.
+14. Verify monthly distribution.
+15. Verify import history.
+
+## Functional Tests
+
+- Dashboard.
+- Invoice creation.
+- Invoice editing.
+- Invoice deletion.
+- Supplier management.
+- Search.
+- Filters.
+- Pagination.
+- Reports.
+- Exports.
+- Role permissions.
+
+## Regression Tests
+
+Ensure existing application modules continue working.
+
+Do not break:
+- Authentication.
+- User management.
+- Existing export tracker.
+- Document storage.
+- Existing database functionality.
+- Existing deployment configuration.
+
+---
+
+# 19. IMPLEMENTATION SEQUENCE
+
+Follow this order:
+
+Phase 1: Inspect existing project and reference files.
+
+Phase 2: Analyse CSV headers and sample data.
+
+Phase 3: Finalise UI structure based on the supplied wireframe.
+
+Phase 4: Design Prisma models and database migrations.
+
+Phase 5: Implement supplier master.
+
+Phase 6: Implement invoice management.
+
+Phase 7: Implement GSTR Period normalisation and monthly organisation.
+
+Phase 8: Implement Monthly GST Entries and monthly detail pages.
+
+Phase 9: Implement Excel/CSV import, mapping and duplicate detection.
+
+Phase 10: Implement monthly import distribution preview.
+
+Phase 11: Implement dashboard.
+
+Phase 12: Implement reports and exports.
+
+Phase 13: Implement role permissions.
+
+Phase 14: Run tests and regression checks.
+
+Do not skip phases.
+
+Do not replace working application features with mock data.
+
+---
+
+# 20. FINAL ACCEPTANCE CRITERIA
+
+The module is complete only when:
+
+- Existing application is modified successfully.
+- All 21 B2B fields are supported.
+- Supplier Master works.
+- Manual invoice entry works.
+- Repeated XLSX/XLS/CSV upload works.
+- Column mapping works.
+- Duplicate detection works.
+- PostgreSQL storage works.
+- Monthly GST sections are generated dynamically.
+- Every invoice is assigned using GSTR Period.
+- Multiple months in one workbook are distributed correctly.
+- Monthly totals are calculated accurately.
+- Financial-year filtering works.
+- Dashboard uses real database data.
+- Invoice register works.
+- Reports and exports work.
+- User permissions are enforced.
+- Prisma migrations are included.
+- TypeScript checks pass.
+- Production build succeeds.
+- Existing modules remain functional.
+
+At completion, provide:
+
+1. Files created.
+2. Files modified.
+3. Database models created or changed.
+4. Migrations created.
+5. APIs implemented.
+6. Frontend pages implemented.
+7. Monthly organisation implementation details.
+8. Excel import implementation details.
+9. Tests executed and results.
+10. Known issues.
+11. Features not tested.
+12. Deployment steps still required.
+
+Use these statuses honestly:
+
+- PASS
+- FAIL
+- NOT TESTED
+- BLOCKED
+
+Do not claim PostgreSQL, Docker or VPS integration tests passed unless actually executed.
+
+---
+
+# FINAL NON-NEGOTIABLE INSTRUCTION
+
+Implement this complete B2B GST Entry module inside my existing SKE application.
+
+Use:
+- `B2B_Data_AI_Studio.csv` for source data structure.
+- The supplied wireframe image for UI design.
+
+The application must support both manual entry and repeated Excel workbook uploads.
+
+**Every invoice must automatically belong to its correct GSTR monthly section.**
+
+The GSTR Period is the primary monthly classification. Invoice Date and Filing Date must remain independent.
+
+All records must be stored correctly in PostgreSQL.
+
+Do not create a new application.
+
+Do not implement excluded GST worksheets.
+
+Do not use hardcoded data.
+
+Start by inspecting the existing codebase and reference files. Then implement the complete module systematically.

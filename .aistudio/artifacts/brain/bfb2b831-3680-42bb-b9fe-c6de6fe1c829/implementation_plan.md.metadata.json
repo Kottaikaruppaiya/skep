@@ -1,0 +1,6 @@
+{
+  "summary":  "Comprehensive implementation plan and schema migration proposal for rule-based export document extraction with local OCR, zero external AI APIs, field provenance tracking, conflict detection, and full workbook-to-app reconciliation.",
+  "updatedAt":  "2026-10-31T18:36:12.970564718Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

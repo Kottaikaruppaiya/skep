@@ -1,0 +1,54 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ske_user}:${POSTGRES_PASSWORD:-ske_secure_password_2026}@postgres:5432/${POSTGRES_DB:-ske_export_db}?schema=public
+      - JWT_SECRET=${JWT_SECRET:-ske_production_secret_key_change_me_in_vps}
+      - OCR_CONCURRENCY=${OCR_CONCURRENCY:-2}
+      - MAX_OCR_FILE_SIZE_MB=${MAX_OCR_FILE_SIZE_MB:-50}
+      - STORAGE_ROOT=${STORAGE_ROOT:-/app/storage}
+    volumes:
+      - ske_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-ske_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ske_secure_password_2026}
+      - POSTGRES_DB=${POSTGRES_DB:-ske_export_db}
+    volumes:
+      - ske_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ske_user} -d ${POSTGRES_DB:-ske_export_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/ssl:/etc/nginx/ssl:ro
+      - ./deploy/certbot/conf:/etc/letsencrypt:ro
+      - ./deploy/certbot/www:/var/www/certbot:ro
+    depends_on:
+      - app
+
+volumes:
+  ske_storage:
+  ske_pgdata:

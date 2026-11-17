@@ -1,0 +1,1687 @@
+# MASTER IMPLEMENTATION PROMPT
+# SKE — EXPORT DOCUMENTS & REALISATION TRACKER
+## Complete Existing Application Enhancement, Excel Workbook Migration & Zero-AI Document Extraction
+
+**Organisation:** S K Enterprises  
+**Application:** SKE — Export Documents & Realisation Tracker  
+**Project Type:** Existing Application Enhancement and Production Readiness  
+**Primary Objective:** Replace the existing Excel-based export tracking workflow with a complete, reliable, multi-user web application.
+
+---
+
+# PART 1 — YOUR ROLE AND RESPONSIBILITY
+
+Act as a senior software architect, full-stack engineer, PostgreSQL database architect, financial workflow specialist, document-processing engineer, export documentation specialist and QA engineer.
+
+You are responsible for understanding, enhancing, testing and completing the EXISTING SKE application.
+
+This is not a request to build a new application from scratch.
+
+You must first understand the existing application's source code, architecture, database schema, existing screens, functionality, business rules and current implementation status.
+
+Your objective is to preserve all working features, correct existing problems, implement missing functionality and integrate the complete Excel workbook workflow into the existing application.
+
+You must treat the following three sources as the primary project references:
+
+1. The existing SKE application source code.
+2. The original Excel workbook: `Export_Realisation_Tracker_FY2026-27_v3(1).xlsm`.
+3. The workbook specification and local document extraction implementation plan supplied with this project.
+
+Do not ignore information from any of these sources.
+
+If two sources disagree, identify the discrepancy and explain it before deciding how to implement the relevant behaviour.
+
+The original workbook is the reference for legacy functionality and historical data. The approved SKE business requirements and existing application decisions govern the intended production behaviour where they explicitly supersede legacy Excel behaviour.
+
+---
+
+# PART 2 — STRICT TECHNOLOGY REQUIREMENTS
+
+The following architecture is mandatory.
+
+## Frontend
+
+- React
+- TypeScript
+- Existing UI component architecture and styling
+- Responsive desktop and mobile interface
+
+## Backend
+
+- Node.js
+- Express.js
+- TypeScript
+- REST API architecture
+
+## Database
+
+- PostgreSQL
+- Prisma ORM
+- Prisma migrations
+- Self-managed VPS hosting
+
+## Document Storage
+
+- Private server-side filesystem.
+- Original uploaded documents must be preserved.
+- Database stores document metadata and storage references.
+- Documents must not be publicly accessible.
+
+## Deployment
+
+- Docker Compose or another reproducible deployment process.
+- HTTPS in production.
+- Environment-based configuration.
+- Database backup and recovery procedures.
+
+## STRICTLY PROHIBITED
+
+Do not introduce:
+
+- Gemini API
+- OpenAI API
+- Claude API
+- Any external LLM API
+- External AI services
+- Cloud OCR
+- Firebase
+- Supabase
+- Third-party hosted databases
+- External bank integrations
+- External document-processing APIs
+- Paid AI extraction services
+
+The application must follow a:
+
+**LOCAL-FIRST AND ZERO EXTERNAL AI DEPENDENCIES ARCHITECTURE.**
+
+All document extraction, OCR, parsing, business calculations and validation must execute locally on the application's own infrastructure.
+
+---
+
+# PART 3 — MANDATORY INITIAL INSPECTION
+
+Before implementing anything, inspect the complete existing project.
+
+Do not immediately modify source code.
+
+Inspect:
+
+1. Complete frontend source code.
+2. Complete backend source code.
+3. Existing React components.
+4. Existing routes and API endpoints.
+5. Existing Prisma schema.
+6. Existing database models and relationships.
+7. Existing document upload implementation.
+8. Existing document storage.
+9. Existing OCR and extraction implementation, if present.
+10. Existing shipment creation workflow.
+11. Existing payment workflow.
+12. Existing BRC workflow.
+13. Existing incentive tracking.
+14. Existing dashboards and reports.
+15. Existing CSV and Excel exports.
+16. Existing authentication and permissions.
+17. Existing audit history.
+18. Existing deployment configuration.
+19. Existing tests.
+20. Existing errors, incomplete modules and duplicate implementations.
+
+Create an inspection report containing:
+
+- Existing features.
+- Partially implemented features.
+- Missing features.
+- Broken features.
+- Existing database relationships.
+- Duplicate or conflicting logic.
+- Security problems.
+- Data integrity problems.
+- Excel functionality not yet implemented.
+- Document extraction gaps.
+- Required database migrations.
+- Implementation dependencies.
+
+Create a feature comparison matrix:
+
+| Feature | Existing Status | Excel Reference | Required Action |
+|---|---|---|---|
+| New Shipment | Inspect | New Entry | Preserve / Enhance |
+| Document Upload | Inspect | New Entry | Preserve / Enhance |
+| Document Extraction | Inspect | New Entry | Implement / Enhance |
+| Export Tracker | Inspect | Export Tracker | Complete |
+| Invoice Lookup | Inspect | Invoice Lookup | Complete |
+| Quick View | Inspect | Quick View | Complete |
+| Summary | Inspect | Summary | Complete |
+| Consignee Summary | Inspect | Consignee Summary | Complete |
+| Consignee Ledgers | Inspect | Five Ledger Sheets | Complete |
+| Consignee Master | Inspect | Consignee Master | Complete |
+| Bank Master | Inspect | Bank Master | Complete |
+| Payments | Inspect | Tracker Payment Columns | Complete |
+| BRC Tracking | Inspect | Tracker BRC Columns | Complete |
+| Incentives | Inspect | Drawback/RoDTEP/RoSCTL | Complete |
+| CSV Export | Inspect | Workbook Data | Complete |
+| Full Workbook Export | Inspect | Original XLSM | Complete |
+
+Do not claim a feature is implemented merely because a screen or button exists.
+
+Verify its actual functionality.
+
+After completing the inspection, prepare an implementation plan and database migration proposal. Do not perform destructive changes before reviewing the plan.
+
+---
+
+# PART 4 — COMPLETE EXCEL WORKBOOK FUNCTIONALITY
+
+The original workbook contains 13 visible worksheets.
+
+All meaningful functionality must be represented in the web application.
+
+## 4.1 Worksheet-to-Application Mapping
+
+| Excel Worksheet | Application Module |
+|---|---|
+| New Entry | New Export Shipment |
+| Invoice Lookup | Invoice Lookup |
+| Quick View | Dashboard / Quick View |
+| Export Tracker | Central Shipment Tracker |
+| Summary | Executive Summary |
+| Consignee Summary | Consignee Summary |
+| SK Global Ventures | Company Ledger |
+| Shasvanth Impex | Company Ledger |
+| Precision Tex Lanka | Company Ledger |
+| Tex Fab Lanka | Company Ledger |
+| Winfield Merchant | Company Ledger |
+| Consignee Master | Consignee Master |
+| Bank Master | Bank Master |
+
+The five consignee ledgers must be generated from the central shipment database. They must not become separate independent databases.
+
+The central PostgreSQL database is the single source of truth.
+
+## 4.2 Export Tracker — All 31 Columns
+
+Preserve the full legacy tracker information.
+
+| Column | Field | Database Requirement |
+|---|---|---|
+| A | S.No | Calculated serial number |
+| B | Invoice No | Unique invoice identifier |
+| C | Invoice Date | Invoice date |
+| D | Shipping Bill No | Shipping Bill number |
+| E | Shipping Bill Date | Shipping Bill date |
+| F | Port Code | Customs port code |
+| G | Consignee Name | Consignee foreign key |
+| H | No. of Pkgs | Package count |
+| I | Invoice Value USD | Invoice amount |
+| J | FOB Value INR | Customs FOB amount |
+| K | Exchange Rate FOB | Customs/booking rate |
+| L | Duty Drawback Amount | Drawback claim |
+| M | Drawback Received | Drawback status |
+| N | Drawback Received Date | Received date |
+| O | RoDTEP Amount | RoDTEP claim |
+| P | RoDTEP Received | RoDTEP status |
+| Q | RoSCTL Amount | RoSCTL claim |
+| R | RoSCTL Received | RoSCTL status |
+| S | Payment Received Date | Payment credit date |
+| T | Amount Received USD | Realised USD |
+| U | Amount Received INR | Realised INR |
+| V | Exchange Rate Received | Realised exchange rate |
+| W | Bank | AD bank |
+| X | Bank IRM Number | Inward Remittance Number |
+| Y | BRC Number | BRC certificate number |
+| Z | BRC Date | BRC date |
+| AA | Difference USD | Outstanding USD |
+| AB | Forex Gain/Loss INR | Actual allocated forex |
+| AC | Gain/Loss Label | GAIN / LOSS / NIL |
+| AD | Remarks | Shipment notes |
+| AE | Key | Legacy reference/key |
+
+Do not silently drop, rename or omit these fields.
+
+Where the application uses normalized tables, provide an appropriate mapping for Excel exports.
+
+## 4.3 New Entry Functionality
+
+Reproduce and improve the original New Entry workflow.
+
+The application must allow:
+
+- Selecting financial year.
+- Entering invoice number.
+- Entering consignee.
+- Selecting bank.
+- Entering invoice date.
+- Entering invoice value USD.
+- Entering package count.
+- Entering Shipping Bill number and date.
+- Entering port code.
+- Entering exchange rate.
+- Entering FOB INR.
+- Recording BL details.
+- Recording payment and FIRC information.
+- Recording BRC information.
+- Recording incentives.
+- Recording remarks.
+- Uploading supporting documents.
+- Saving the shipment.
+- Clearing the form.
+
+Add duplicate invoice validation and server-side mandatory field validation.
+
+## 4.4 Invoice Lookup
+
+Implement complete invoice search and editing.
+
+Search using:
+
+- Invoice number.
+- Shipping Bill number.
+- BL number.
+- IRM number.
+- BRC number.
+- Consignee.
+- Remarks.
+
+Provide:
+
+- Complete invoice details.
+- All linked documents.
+- Payment history.
+- BRC history.
+- Incentive history.
+- Editable fields.
+- Save changes.
+- Clear form.
+
+Preserve the original Excel CHANGE TO behaviour:
+
+- Blank change field means retain existing value.
+- `DEL` means clear the corresponding field.
+
+Do not interpret blank fields as deletion.
+
+Record all modifications in the audit log.
+
+## 4.5 Quick View / Dashboard
+
+Reproduce the workbook's Quick View functionality.
+
+Display:
+
+- Total invoices.
+- Fully paid invoices.
+- Partially paid invoices.
+- Pending invoices.
+- INR pending cases.
+- Outstanding USD.
+- Total realised USD.
+- Total realised INR.
+- Forex gain/loss.
+- Drawback pending.
+- RoDTEP pending.
+- RoSCTL pending.
+- BRC pending.
+- Upcoming statutory deadlines.
+- Overdue realisations.
+- Consignee-level exposure.
+
+Payment statuses must be calculated from actual payment allocations.
+
+Required statuses:
+
+- PENDING
+- RECD – INR PENDING
+- PART PAID
+- PAID
+- PAID – BANK CHG
+- EXCESS RECEIVED
+
+Do not automatically classify a shortfall as bank charges.
+
+Only assign PAID – BANK CHG when actual bank charges are supported by recorded evidence.
+
+Use configurable tolerance values. Do not hide genuine outstanding balances.
+
+## 4.6 Summary
+
+Implement the executive summary.
+
+Include:
+
+- Total shipments.
+- Total invoice USD.
+- Total FOB INR.
+- Total realised USD.
+- Total realised INR.
+- Total outstanding USD.
+- Forex gain/loss.
+- Drawback claimed.
+- Drawback received.
+- Drawback pending.
+- RoDTEP claimed, received and pending.
+- RoSCTL claimed, received and pending.
+- Total incentive claims.
+- Total incentives received.
+- Total incentives pending.
+- Port-wise statistics.
+- Bank-wise statistics.
+- IRM completeness.
+- BRC completeness.
+- Payment status distribution.
+
+All calculations must use database records, not manually maintained duplicate values.
+
+## 4.7 Consignee Summary
+
+Provide per-consignee:
+
+- Invoice count.
+- Invoice USD.
+- FOB INR.
+- Realised USD.
+- Realised INR.
+- Outstanding USD.
+- Payment status.
+- Incentive amounts.
+- BRC status.
+- Shipment history.
+
+## 4.8 Five Consignee Ledgers
+
+Implement dedicated ledger views for:
+
+1. SK Global Ventures
+2. Shasvanth Impex
+3. Precision Tex Lanka
+4. Tex Fab Lanka
+5. Winfield Merchant
+
+Each ledger must support:
+
+- Consignee-specific shipment filtering.
+- Invoice details.
+- Shipping Bill details.
+- Payment details.
+- Outstanding balances.
+- Incentives.
+- BRC tracking.
+- Remarks.
+- Document access.
+- CSV export.
+
+These are filtered views over shared database records.
+
+## 4.9 Consignee Master
+
+Implement:
+
+- Add consignee.
+- Edit consignee.
+- Activate/deactivate consignee.
+- Consignee name.
+- Country.
+- Port.
+- Payment terms.
+- Designated currency.
+- Contact details.
+- Remittance email.
+- Address and other relevant business details.
+
+Prevent accidental duplicate consignee records.
+
+Existing shipment history must remain intact when a consignee is deactivated.
+
+## 4.10 Bank Master
+
+Preserve existing bank records:
+
+- DBS Bank India.
+- HDFC Bank.
+- Kotak Mahindra Bank.
+- Yes Bank.
+
+Support:
+
+- Bank name.
+- AD code.
+- Branch details.
+- Active/inactive status.
+- Bank account/reference metadata where required.
+
+Do not create duplicate bank masters.
+
+## 4.11 CSV and Full Workbook Exports
+
+Implement:
+
+1. Shipment CSV export.
+2. Consignee-specific CSV export.
+3. Payment CSV export.
+4. Incentive CSV export.
+5. BRC CSV export.
+6. Full workbook Excel export.
+
+The full workbook export should provide equivalent worksheets for all 13 legacy workbook views, with the appropriate application data and calculated values.
+
+Use `.xlsx` for a newly generated workbook unless preserving `.xlsm` macros is an explicitly supported and tested requirement.
+
+Never claim that a newly generated XLSX file preserves original VBA macros.
+
+Support filters such as:
+
+- Financial year.
+- Invoice date range.
+- Consignee.
+- Bank.
+- Payment status.
+- Port.
+- BRC status.
+
+---
+
+# PART 5 — NEW EXPORT SHIPMENT: COMPLETE DOCUMENT UPLOAD WORKFLOW
+
+This is one of the most important modules.
+
+Implement the New Export Shipment screen with the complete workflow described below.
+
+## 5.1 Upload Interface
+
+Screen title:
+
+NEW EXPORT SHIPMENT
+
+Subtitle:
+
+Auto-Extraction Enabled
+
+Description:
+
+Upload export documents, extract supported ledger fields locally, review missing or conflicting values, manually correct fields and save the shipment.
+
+Support up to seven document slots.
+
+| Slot | Document |
+|---|---|
+| 1 | Commercial Invoice |
+| 2 | Shipping Bill |
+| 3 | Bill of Lading |
+| 4 | BRC Copy 1 / Single BRC |
+| 5 | BRC Copy 2 / Second BRC |
+| 6 | FIRC / Payment Receipt |
+| 7 | Additional Documents |
+
+Supported formats:
+
+- PDF
+- JPG
+- JPEG
+- PNG
+
+Maximum size: 25 MB per file, subject to server configuration.
+
+Allow multiple file selection and drag-and-drop upload.
+
+Clearly display:
+
+- Selected filename.
+- File size.
+- Document type.
+- Upload status.
+- Extraction status.
+- Validation status.
+- Remove/replace action.
+
+Do not silently overwrite uploaded files.
+
+## 5.2 Financial Year and Primary Identification
+
+Required fields:
+
+- Financial Year.
+- Invoice Number.
+
+Financial year options must be configurable.
+
+Default to the current applicable financial year, using the application's financial-year calculation rather than a hardcoded year.
+
+Invoice number must be unique according to the approved uniqueness policy.
+
+Use server-side uniqueness enforcement.
+
+## 5.3 Document-Specific Extraction
+
+### Commercial Invoice
+
+Extract where present:
+
+- Invoice number.
+- Invoice date.
+- Exporter.
+- Consignee.
+- Invoice currency.
+- Invoice value.
+- Total packages.
+- Line items.
+- Product descriptions.
+- Quantity.
+- Unit price.
+- Total value.
+
+### Shipping Bill
+
+Extract where present:
+
+- Shipping Bill number.
+- Shipping Bill date.
+- Port code.
+- Customs exchange rate.
+- FOB INR.
+- Drawback claim.
+- RoDTEP claim.
+- RoSCTL claim.
+- Exporter.
+- Consignee.
+- Other available customs details.
+
+### Bill of Lading
+
+Extract where present:
+
+- BL / MTD number.
+- BL date.
+- Vessel name.
+- Voyage.
+- Carrier.
+- Container number.
+- Package count.
+- Shipper.
+- Consignee.
+- Port of loading.
+- Port of discharge.
+
+### FIRC / Payment Receipt
+
+Extract where present:
+
+- IRM number.
+- Sender reference.
+- Remittance date.
+- Credit date.
+- Foreign currency.
+- Foreign currency amount.
+- INR amount.
+- Exchange rate.
+- Bank name.
+- Bank reference.
+- Charges and deductions where explicitly stated.
+
+### BRC
+
+Extract where present:
+
+- BRC number.
+- Certificate number.
+- Issue date.
+- Realisation date.
+- Realised amount.
+- Currency.
+- Linked invoice reference.
+- Bank details.
+
+### Additional Documents
+
+Identify document type where supported.
+
+Extract reference numbers and metadata where deterministic rules exist.
+
+Do not claim complete semantic understanding of arbitrary supplementary documents.
+
+## 5.4 Extraction Source and Field Mapping
+
+Every extracted field must retain:
+
+- Field name.
+- Original extracted value.
+- Accepted value.
+- Source document ID.
+- Source document filename.
+- Page number.
+- Extraction method.
+- Review status.
+- Manual modification status.
+- Conflict information.
+
+Supported extraction methods:
+
+- PDF_TEXT
+- LOCAL_OCR
+- HYBRID
+- MANUAL
+
+The user must be able to click a field's source reference and inspect the corresponding document/page.
+
+## 5.5 Editable Review Interface
+
+All relevant extracted fields must be editable.
+
+Provide three principal states:
+
+1. EXTRACTED
+2. MANUALLY ENTERED
+3. REVIEW REQUIRED
+
+Additional states:
+
+- CONFIRMED
+- CONFLICT DETECTED
+- EXTRACTION FAILED
+
+Example:
+
+Invoice Value USD:
+$18,450.00 — Extracted from Commercial Invoice, Page 1.
+
+Shipping Bill Number:
+2174892 — Extracted from Shipping Bill, Page 1.
+
+Container Number:
+Not extracted — Manual entry required.
+
+When the user changes an extracted value:
+
+- Preserve the original value.
+- Save the accepted value.
+- Record the modification.
+- Record the user and timestamp.
+- Preserve the source document reference.
+
+Never silently replace extracted values.
+
+## 5.6 Cross-Document Conflict Detection
+
+Compare values across documents.
+
+Examples:
+
+- Invoice number in Invoice versus Shipping Bill.
+- Consignee in Invoice versus Shipping Bill.
+- Invoice USD versus relevant declared value in other documents.
+- Package count in Invoice versus BL.
+- Shipping Bill date versus BL date.
+- FIRC amount versus payment allocation.
+- BRC reference versus linked invoice/payment records.
+
+Show discrepancies to the user.
+
+Classify discrepancies:
+
+- MATCH
+- WARNING
+- CONFLICT
+- MISSING
+- MANUAL REVIEW
+
+Do not automatically select one conflicting value without a documented source-priority rule.
+
+Do not silently change a financial value.
+
+## 5.7 Commercial and Customs Ledger Fields
+
+The form must include:
+
+- Consignee.
+- AD Bank.
+- Invoice date.
+- Invoice value USD.
+- Packages.
+- Shipping Bill number.
+- Shipping Bill date.
+- Customs exchange rate.
+- FOB INR.
+- BL number.
+- BL date.
+- Vessel name.
+- Port code.
+- Payment and FIRC linkage.
+- Incentive details.
+- BRC details.
+- Remarks.
+
+All fields must be editable where appropriate.
+
+Display which values came from uploaded documents and which were manually entered.
+
+## 5.8 Remarks
+
+Provide a dedicated remarks field.
+
+Remarks must synchronize across:
+
+- Shipment details.
+- Invoice Lookup.
+- Consignee ledgers.
+- Dashboard where applicable.
+- CSV exports.
+- Full workbook export.
+
+Do not store statutory deadlines only as free-text remarks.
+
+Use dedicated structured date fields for deadlines.
+
+---
+
+# PART 6 — ZERO-AI LOCAL DOCUMENT PROCESSING
+
+## 6.1 Local Processing Architecture
+
+Implement the following pipeline:
+
+UPLOAD
+→ FILE VALIDATION
+→ PRIVATE STORAGE
+→ DOCUMENT CLASSIFICATION
+→ DIGITAL PDF TEXT EXTRACTION
+→ OCR FALLBACK
+→ DOCUMENT-SPECIFIC PARSING
+→ FIELD NORMALIZATION
+→ CROSS-DOCUMENT VALIDATION
+→ USER REVIEW
+→ DATABASE PERSISTENCE
+
+## 6.2 Recommended Local Technologies
+
+Inspect compatibility with the existing project before adding dependencies.
+
+Potential libraries:
+
+- `pdf-parse` for digital PDF text extraction.
+- `tesseract.js` for local OCR.
+- Poppler utilities for rendering scanned PDF pages into images.
+- An image processing library such as Sharp for grayscale, rotation and contrast preprocessing.
+- Regex for deterministic pattern extraction.
+- TypeScript schemas for validation.
+
+All OCR language models and required runtime assets must be installed locally.
+
+No OCR component may silently download external processing assets during production execution.
+
+Verify offline operation.
+
+## 6.3 Digital PDF and Scanned PDF Handling
+
+Digital PDF:
+- Extract embedded text.
+- Preserve page-level text information where supported.
+- Run document-specific parsing rules.
+
+Scanned PDF:
+- Render each page locally.
+- Preprocess the image.
+- Run Tesseract OCR.
+- Retain page references.
+- Apply parsing rules.
+
+Images:
+- Apply local preprocessing.
+- Run OCR.
+- Apply field extraction rules.
+
+Low-quality documents:
+- Mark extraction as unsuccessful or uncertain.
+- Allow manual review.
+- Never invent a value.
+
+OCR confidence scores are not proof that a financial value is correct.
+
+## 6.4 Document Classification
+
+Support:
+
+- User-selected upload slots.
+- Keyword/header matching.
+- Document-specific format recognition.
+- File metadata checks.
+
+If automatic classification is uncertain, ask the user to select the document type.
+
+## 6.5 Document-Specific Parsers
+
+Build separate maintainable parsers:
+
+- `commercialInvoiceParser.ts`
+- `shippingBillParser.ts`
+- `billOfLadingParser.ts`
+- `fircParser.ts`
+- `brcParser.ts`
+- `additionalDocumentParser.ts`
+
+Do not put every extraction rule inside one large function.
+
+Create test fixtures using actual sample business documents.
+
+Parser rules must be configurable and maintainable.
+
+---
+
+# PART 7 — PAYMENT AND REALISATION MANAGEMENT
+
+Payment management must be a complete relational workflow.
+
+A single invoice may receive multiple partial payments.
+
+A single inward remittance may also need allocation across multiple invoices.
+
+Therefore, do not rely on one payment field per shipment.
+
+Implement normalized entities:
+
+- Shipment / Export Invoice.
+- Payment / Inward Remittance.
+- Payment Allocation.
+- Bank.
+- Bank Charges.
+- Realisation Details.
+
+Each payment must support:
+
+- IRM number.
+- Bank.
+- Remittance date.
+- Credit date.
+- Foreign currency.
+- Foreign currency amount.
+- INR amount.
+- Exchange rate.
+- Bank charges where documented.
+- Supporting FIRC document.
+- Payment allocation.
+
+Calculate:
+
+Total Allocated USD = Sum of valid payment allocations.
+
+Outstanding USD = Invoice USD − Total Allocated USD.
+
+Excess USD = Allocated USD − Invoice USD, when positive.
+
+Support partial payment status.
+
+Do not mark an invoice fully paid solely because an INR amount exists.
+
+Enforce valid allocation limits and allow authorized handling of overpayments through explicit business rules.
+
+## 7.1 Forex Gain/Loss
+
+The legacy workbook uses:
+
+AB = Received INR − FOB INR.
+
+This can be misleading for partial payments.
+
+Do not reproduce this formula as actual realized forex.
+
+Calculate realized forex at payment-allocation level using an approved accounting basis.
+
+A possible formula is:
+
+Realised Forex = Allocated USD × (Realisation Rate − Approved Booking Rate)
+
+However, confirm the appropriate accounting basis with the business/accountant before making this the authoritative figure.
+
+Separate:
+
+- Unpaid principal.
+- Realised forex.
+- Bank charges.
+- Other adjustments.
+
+Provide a transparent calculation breakdown.
+
+---
+
+# PART 8 — BRC MANAGEMENT
+
+Implement complete BRC management.
+
+Requirements:
+
+- Single BRC mode: exactly one BRC document.
+- Multiple BRC mode: exactly two BRC documents.
+- BRC number.
+- BRC date.
+- Linked invoice.
+- Linked payment/realisation.
+- Realised amount.
+- Supporting documents.
+- Status.
+- Deadline tracking.
+- History and audit log.
+
+The BRC upload requirements must be enforced on the server.
+
+Do not treat an uploaded BRC file as automatically verified.
+
+Provide:
+
+- Pending.
+- Uploaded.
+- Under review.
+- Verified.
+- Rejected.
+- Not applicable, where authorized.
+
+Use structured deadline fields.
+
+The proposed 270-day deadline must not be treated as a universally valid legal rule without verification of the applicable regulations, effective dates and exceptions.
+
+Make statutory deadlines configurable and auditable.
+
+---
+
+# PART 9 — INCENTIVE MANAGEMENT
+
+Track three incentive categories separately:
+
+1. Duty Drawback.
+2. RoDTEP.
+3. RoSCTL.
+
+Each claim must support:
+
+- Claim amount.
+- Claim date.
+- Shipping Bill reference.
+- Current status.
+- Received amount.
+- Received date.
+- Supporting proof.
+- Remarks.
+- Reconciliation history.
+
+Use explicit statuses:
+
+- NOT_CLAIMED
+- CLAIMED
+- PENDING
+- PARTIALLY_RECEIVED
+- RECEIVED
+- REJECTED
+- UNDER_REVIEW
+- UNKNOWN
+
+Do not treat blank legacy cells as confirmed pending amounts without review.
+
+Distinguish:
+
+- No information available.
+- Claim not made.
+- Claim made and pending.
+- Claim partially received.
+- Fully received.
+
+Allow multiple receipt transactions if required.
+
+Dashboard and summary calculations must use actual claim and receipt records.
+
+---
+
+# PART 10 — DATABASE ARCHITECTURE
+
+Inspect the current Prisma schema first.
+
+Do not replace it blindly.
+
+Propose and implement normalized relationships for:
+
+- User
+- Role
+- FinancialYear
+- Consignee
+- Bank
+- Shipment / ExportInvoice
+- ShipmentDocument
+- ExtractionResult
+- FieldProvenance
+- Payment
+- PaymentAllocation
+- BankCharge
+- IncentiveClaim
+- IncentiveReceipt
+- BRCRecord
+- ShipmentRemark
+- AuditLog
+
+Adapt these entities to existing model names and relationships wherever possible.
+
+## Database Requirements
+
+- Foreign key constraints.
+- Unique constraints.
+- Appropriate indexes.
+- Decimal types for financial amounts.
+- Explicit currency fields.
+- Correct date/time handling.
+- Transactional shipment creation.
+- Referential integrity.
+- Soft deletion where appropriate.
+- Auditability.
+- Versioned migrations.
+
+Do not use floating-point types for authoritative financial calculations.
+
+Use PostgreSQL Decimal/Numeric and appropriate TypeScript decimal handling.
+
+Do not create an unnecessarily complicated schema.
+
+Every schema change must have:
+
+1. Explanation.
+2. Migration.
+3. Backward compatibility analysis.
+4. Data migration strategy.
+5. Rollback or recovery strategy.
+
+---
+
+# PART 11 — USER ROLES AND SECURITY
+
+Implement exactly these application roles:
+
+## Super Admin
+
+- Full system access.
+- Manage users.
+- Manage Admins.
+- Manage system settings.
+- Access all financial records.
+- Access all documents.
+- Approve and correct records.
+- Access audit history.
+
+## Admin
+
+- Manage shipments.
+- Upload documents.
+- Manage payments.
+- Manage BRCs.
+- Manage incentives.
+- Edit business records.
+- Access reports.
+- Cannot create, modify or manage other Admin accounts.
+- Cannot assign Super Admin privileges.
+
+## Viewer
+
+- Read-only access.
+- View authorized dashboards.
+- View shipment records.
+- View permitted documents.
+- View reports.
+- Cannot create, modify, upload, delete or approve records.
+
+No Staff role.
+
+Enforce permissions in the backend, not only in the frontend.
+
+Protect uploaded documents from unauthorized access.
+
+Validate file content, extension, MIME type and file size.
+
+Prevent path traversal, unsafe filenames and unauthorized file replacement.
+
+---
+
+# PART 12 — HISTORICAL EXCEL DATA MIGRATION
+
+The Excel workbook is the legacy source of historical export data.
+
+Implement a validated migration process.
+
+Requirements:
+
+1. Import legacy shipment rows.
+2. Map all 31 tracker columns.
+3. Import consignee master records.
+4. Import bank master records.
+5. Preserve invoice and Shipping Bill references.
+6. Preserve remarks.
+7. Preserve incentive claim amounts and statuses.
+8. Preserve payment information.
+9. Preserve BRC information.
+10. Preserve historical source references.
+
+Do not silently discard incomplete rows.
+
+Do not fabricate missing FIRC records or payment allocations.
+
+Do not mark historical shipments as verified if supporting evidence is absent.
+
+Because the application's approved rule requires FIRC linkage before saving new shipments, design an explicit authorized historical migration/legacy exception workflow rather than bypassing that validation for ordinary new entries.
+
+Create a migration report:
+
+- Total source rows.
+- Successfully imported rows.
+- Duplicate rows.
+- Invalid rows.
+- Missing values.
+- Unmatched consignee records.
+- Unmatched bank records.
+- Financial discrepancies.
+- Records requiring manual review.
+
+Validate imported totals against the source workbook.
+
+Preserve the original workbook separately.
+
+---
+
+# PART 13 — DOCUMENT VAULT AND FILE LIFECYCLE
+
+Implement a secure document vault.
+
+Requirements:
+
+- Private storage.
+- Financial-year directory organization.
+- Shipment-specific directory organization.
+- Original filename preservation as metadata.
+- Safe internal storage filenames.
+- File checksum/hash.
+- File size.
+- MIME type.
+- Upload user.
+- Upload timestamp.
+- Document category.
+- Version history.
+- Extraction status.
+- Review status.
+
+Suggested structure:
+
+storage/
+  FY2026-27/
+    shipment-id/
+      invoice/
+      shipping-bill/
+      bill-of-lading/
+      firc/
+      brc/
+      additional/
+
+Do not expose physical filesystem paths to frontend users.
+
+Provide authorized document preview/download.
+
+Define replacement, archival and deletion policies.
+
+Do not permanently delete financial evidence through ordinary user actions.
+
+---
+
+# PART 14 — AUDIT HISTORY
+
+Record all important activities:
+
+- Shipment created.
+- Shipment modified.
+- Document uploaded.
+- Document replaced.
+- Document extraction completed.
+- Extraction failed.
+- Field manually corrected.
+- Payment created.
+- Payment allocation changed.
+- Incentive updated.
+- BRC uploaded.
+- BRC status changed.
+- User permissions changed.
+- Export generated.
+- Record archived.
+
+Each audit event should record:
+
+- User.
+- Action.
+- Entity.
+- Entity ID.
+- Previous value where relevant.
+- New value where relevant.
+- Timestamp.
+- Reason where required.
+
+Preserve extraction history and original document evidence.
+
+---
+
+# PART 15 — DASHBOARD AND REPORTING ACCURACY
+
+All dashboards must derive values from normalized database records.
+
+Correct the legacy workbook's known problems:
+
+## Forex Formula Problem
+
+Do not use:
+
+Received INR − Full FOB INR
+
+as realized forex for partially paid invoices.
+
+Calculate forex at payment-allocation level.
+
+## Outstanding Invoice Problem
+
+Do not determine unpaid status merely by checking whether Received INR is blank.
+
+Use actual invoice USD minus allocated USD.
+
+## Bank Charges Problem
+
+Do not automatically classify every small USD shortfall as bank charges.
+
+Only use verified recorded charges.
+
+## BRC Deadline Problem
+
+Do not extract statutory deadlines exclusively from remarks.
+
+Use structured dates and configurable approved rules.
+
+## Incentive Status Problem
+
+Do not treat blank status cells as confirmed pending claims.
+
+Use explicit statuses and reconciliation.
+
+All dashboard totals must reconcile with underlying records.
+
+---
+
+# PART 16 — SEARCH, FILTER AND NAVIGATION
+
+Implement application-wide search.
+
+Search by:
+
+- Invoice number.
+- Shipping Bill number.
+- BL number.
+- IRM number.
+- BRC number.
+- Consignee.
+- Bank.
+- Remarks.
+
+Filters:
+
+- Financial year.
+- Date range.
+- Consignee.
+- Bank.
+- Port.
+- Payment status.
+- BRC status.
+- Incentive status.
+
+Maintain pagination for large shipment datasets.
+
+Avoid loading the entire database into the browser.
+
+---
+
+# PART 17 — USER INTERFACE REQUIREMENTS
+
+Preserve the existing application's design language and screen structure wherever practical.
+
+Do not redesign the whole application without a specific requirement.
+
+New Export Shipment must be easy to use.
+
+Required interface sections:
+
+1. Financial Year and Primary Identification.
+2. Document Vault Upload.
+3. Text Remarks.
+4. Commercial and Customs Ledger Fields.
+5. Payment and FIRC Details.
+6. Incentive Details.
+7. BRC Details.
+8. Extraction Review.
+9. Conflict and Validation Summary.
+10. Save and Cancel.
+
+Provide clear loading, success and failure states.
+
+Show extraction progress for each document.
+
+Allow users to correct extracted values before saving.
+
+Do not make buttons decorative. Every visible action must work.
+
+---
+
+# PART 18 — TESTING AND QUALITY ASSURANCE
+
+Implement unit, integration and end-to-end tests.
+
+## 18.1 Document Extraction Tests
+
+Test:
+
+- Digital commercial invoice.
+- Scanned commercial invoice.
+- Shipping Bill.
+- Scanned Bill of Lading.
+- FIRC.
+- Single BRC.
+- Two BRCs.
+- Poor-quality scans.
+- Rotated pages.
+- Missing fields.
+- Duplicate uploads.
+- Unsupported file formats.
+- Oversized documents.
+- Corrupted documents.
+
+Compare extraction results with manually verified ground truth.
+
+Report field-level accuracy.
+
+Do not claim 100% extraction accuracy.
+
+## 18.2 Business Logic Tests
+
+Test:
+
+- Duplicate invoice prevention.
+- Mandatory FIRC linkage.
+- Single BRC validation.
+- Multiple BRC validation.
+- Partial payments.
+- Multiple remittances.
+- One remittance allocated across multiple invoices.
+- Excess payment.
+- Outstanding balance.
+- Forex calculations.
+- Bank charges.
+- Incentive receipts.
+- BRC deadlines.
+- Consignee totals.
+- Bank totals.
+
+## 18.3 Security Tests
+
+Test:
+
+- Viewer cannot modify records.
+- Admin cannot manage Admin accounts.
+- Unauthorized document access is blocked.
+- Upload validation works.
+- Files cannot be accessed using guessed paths.
+- Audit history cannot be modified by unauthorized users.
+- Database operations respect user permissions.
+
+## 18.4 Regression Tests
+
+Verify that all existing functionality continues to work after enhancements.
+
+Run:
+
+- TypeScript compilation.
+- Frontend build.
+- Backend build.
+- Prisma validation.
+- Database migration tests.
+- API tests.
+- End-to-end tests.
+
+Do not declare the project production-ready merely because the development server starts.
+
+---
+
+# PART 19 — IMPLEMENTATION PHASES
+
+Implement in controlled phases.
+
+## Phase 0 — Complete Project Inspection
+
+- Inspect existing application.
+- Inspect original workbook.
+- Inspect workbook specification.
+- Inspect extraction implementation plan.
+- Compare current functionality against all requirements.
+- Prepare architecture and migration proposal.
+
+Deliverable: Complete inspection report.
+
+## Phase 1 — Database and Data Integrity
+
+- Finalize normalized schema.
+- Add required migrations.
+- Implement constraints.
+- Implement audit history.
+- Prepare historical migration.
+
+Deliverable: Validated database architecture.
+
+## Phase 2 — Document Vault
+
+- Secure file upload.
+- File validation.
+- Private storage.
+- File metadata.
+- Version history.
+- Authorized preview/download.
+
+Deliverable: Working document management.
+
+## Phase 3 — Local Extraction Engine
+
+- Digital PDF extraction.
+- Local OCR.
+- PDF page rendering.
+- Document classification.
+- Document-specific parsers.
+- Field provenance.
+- Error handling.
+
+Deliverable: Working zero-AI extraction engine.
+
+## Phase 4 — New Shipment Review Workflow
+
+- Seven document slots.
+- Financial year and invoice identification.
+- Automatic extraction.
+- Editable fields.
+- Manual entry.
+- Conflict detection.
+- Validation.
+- Transactional saving.
+
+Deliverable: Complete New Export Shipment module.
+
+## Phase 5 — Payments, BRC and Incentives
+
+- Payment records.
+- Payment allocations.
+- FIRC linkage.
+- Forex calculation.
+- Bank charges.
+- BRC management.
+- Incentive claims and receipts.
+
+Deliverable: Complete financial workflow.
+
+## Phase 6 — Workbook Functionality
+
+- Export Tracker.
+- Invoice Lookup.
+- Quick View.
+- Summary.
+- Consignee Summary.
+- Five consignee ledgers.
+- Consignee Master.
+- Bank Master.
+
+Deliverable: Complete Excel-to-web functionality.
+
+## Phase 7 — Imports, Exports and Reports
+
+- Historical Excel import.
+- CSV exports.
+- Full workbook export.
+- Reconciliation reports.
+
+Deliverable: Complete data migration and reporting.
+
+## Phase 8 — Security, Testing and Deployment
+
+- Role-based permissions.
+- Security testing.
+- Performance testing.
+- Backup and recovery.
+- Docker deployment.
+- HTTPS.
+- Production readiness review.
+
+Deliverable: Tested and deployable application.
+
+---
+
+# PART 20 — NON-NEGOTIABLE DEVELOPMENT RULES
+
+1. Never rebuild the application from scratch.
+2. Never delete existing working functionality without approval.
+3. Never introduce an external AI API.
+4. Never introduce Firebase or Supabase.
+5. Never move the database to a third-party hosted service.
+6. Never store financial documents in public storage.
+7. Never silently overwrite extracted data.
+8. Never fabricate missing financial information.
+9. Never calculate realized forex using an incorrect partial-payment formula.
+10. Never silently discard historical Excel records.
+11. Never bypass mandatory FIRC validation for new shipments.
+12. Never allow unauthorized users to modify financial records.
+13. Never make unsupported claims about extraction accuracy.
+14. Never modify unrelated UI components unnecessarily.
+15. Never create duplicate database tables or duplicate business logic.
+16. Never implement a schema migration without examining existing relationships.
+17. Never report a feature as complete without testing it.
+18. Never claim that a workbook export preserves macros unless verified.
+19. Never hardcode unverified statutory deadlines.
+20. Never sacrifice financial data integrity for convenience.
+
+If a requirement conflicts with existing code, explain the conflict and propose the safest implementation.
+
+If a requirement is unclear, ask for clarification instead of inventing business rules.
+
+---
+
+# PART 21 — FINAL ACCEPTANCE CRITERIA
+
+The application is considered complete only when all of the following are demonstrated:
+
+### Workbook Replacement
+
+- All 13 legacy workbook views have corresponding application functionality.
+- All 31 tracker columns are accounted for.
+- All calculations are validated.
+- Historical records are migrated and reconciled.
+- CSV and workbook exports work.
+
+### Document Extraction
+
+- Up to seven documents can be uploaded.
+- Digital PDFs are processed locally.
+- Scanned PDFs and images use local OCR.
+- Relevant fields are extracted using deterministic rules.
+- Missing fields can be entered manually.
+- Extracted values remain editable.
+- Conflicting values are flagged.
+- Original documents are preserved.
+- Extraction provenance and manual changes are auditable.
+- No external AI API is used.
+
+### Financial Management
+
+- Multiple payments per invoice work.
+- Partial payments work.
+- Payment allocations work.
+- Outstanding USD is accurate.
+- Forex calculations are transparent.
+- FIRC linkage works.
+- BRC single/multiple requirements work.
+- Incentive tracking works.
+
+### Security
+
+- Super Admin, Admin and Viewer permissions work.
+- Private document storage is enforced.
+- Audit history is maintained.
+- Database integrity is preserved.
+
+### Production Readiness
+
+- Migrations work.
+- Tests pass.
+- Backups are configured.
+- Deployment is reproducible.
+- HTTPS works.
+- No critical security or data integrity defects remain.
+
+---
+
+# PART 22 — YOUR FIRST TASK
+
+Do not start implementing the entire application immediately.
+
+Your first task is to inspect all uploaded files and the complete existing source code.
+
+Produce these deliverables:
+
+1. Existing Application Architecture Report.
+2. Complete Excel Workbook Feature Mapping.
+3. All 31 Excel Column-to-Database Mapping.
+4. Existing-versus-Missing Feature Matrix.
+5. New Shipment Document Extraction Architecture.
+6. Zero-AI Technology Compatibility Report.
+7. Database Schema and Migration Proposal.
+8. Payment, Forex, FIRC and BRC Business Logic Report.
+9. Incentive Tracking Specification.
+10. User Permissions and Security Report.
+11. Historical Data Migration Plan.
+12. Testing Strategy.
+13. Prioritized Implementation Roadmap.
+14. Risks, Assumptions and Questions Requiring Business Approval.
+
+For every feature, distinguish:
+
+- Already implemented.
+- Partially implemented.
+- Not implemented.
+- Implemented but incorrect.
+- Requires business confirmation.
+
+Reference actual source files and database models wherever possible.
+
+Do not invent existing functionality.
+
+Do not assume that an item in this specification is already implemented.
+
+**STOP AFTER PRODUCING THE COMPLETE INSPECTION REPORT AND IMPLEMENTATION PLAN.**
+
+Wait for explicit approval before making code changes or database migrations.
+
+After approval, implement phase by phase, preserve all existing working functionality and report actual test results.
+
+# FINAL PROJECT PRINCIPLE
+
+The SKE application must become a reliable, auditable, multi-user export documentation and financial realisation management system.
+
+It must replace the operational functionality of the original Excel workbook, preserve historical business information, process export documents using local zero-AI technology, support manual verification and maintain accurate payment, forex, incentive and BRC records.
+
+**PostgreSQL is the system of record. Original documents are preserved. Excel is used for historical migration and reporting. All document extraction runs locally. Financial accuracy and data integrity take priority over automation speed.**
