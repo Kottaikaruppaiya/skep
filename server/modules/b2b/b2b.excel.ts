@@ -10,7 +10,8 @@ import type {
   B2bMonthlySummary,
   Supplier,
 } from '../../../src/types/index.ts';
-import { round2 } from '../../shared/utils/decimal.ts';
+import { dAdd, round2 } from '../../shared/utils/decimal.ts';
+import { isValidGstin, normalizeGstin } from '../../shared/utils/gstin.ts';
 import { normalizeGstrPeriod } from '../../shared/utils/gstr-period.ts';
 
 const FIELD_ALIASES: Record<string, string[]> = {
@@ -78,6 +79,23 @@ export function parseB2bDateCell(val: any): string | null {
   const parsed = new Date(str);
   if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
   return null;
+}
+
+function parseB2bNumericCell(val: unknown): { value: number; present: boolean; invalid: boolean } {
+  if (val === undefined || val === null || String(val).trim() === '') {
+    return { value: 0, present: false, invalid: false };
+  }
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return { value: 0, present: true, invalid: true };
+    return { value: val, present: true, invalid: false };
+  }
+  const cleaned = String(val).replace(/,/g, '').trim();
+  if (!cleaned) return { value: 0, present: false, invalid: false };
+  const num = Number(cleaned);
+  if (!Number.isFinite(num)) {
+    return { value: 0, present: true, invalid: true };
+  }
+  return { value: num, present: true, invalid: false };
 }
 
 export function previewB2bWorkbook(
@@ -195,31 +213,48 @@ export function previewB2bWorkbook(
       return idx !== undefined ? row[idx] : undefined;
     };
 
-    const rawGstin = String(getVal('supplierGstin') || '').trim().toUpperCase();
+    const rawGstin = normalizeGstin(getVal('supplierGstin'));
     const rawSupplierName = String(getVal('supplierName') || '').trim();
     const rawInvoiceNumber = String(getVal('invoiceNumber') || '').trim();
     const rawInvoiceType = String(getVal('invoiceType') || 'Regular').trim() || 'Regular';
     const rawInvoiceDate = parseB2bDateCell(getVal('invoiceDate'));
-    const rawInvoiceValue = Number(String(getVal('invoiceValue') || 0).replace(/,/g, '')) || 0;
-    const rawPlaceOfSupply = String(getVal('placeOfSupply') || '').trim();
-    let rawReverseCharge = String(getVal('reverseCharge') || 'N').trim().toUpperCase();
-    if (rawReverseCharge === 'YES') rawReverseCharge = 'Y';
-    if (rawReverseCharge === 'NO') rawReverseCharge = 'N';
 
-    const rawTaxableValue = Number(String(getVal('taxableValue') || 0).replace(/,/g, '')) || 0;
-    const rawIgst = Number(String(getVal('integratedTax') || 0).replace(/,/g, '')) || 0;
-    const rawCgst = Number(String(getVal('centralTax') || 0).replace(/,/g, '')) || 0;
-    const rawSgst = Number(String(getVal('stateUtTax') || 0).replace(/,/g, '')) || 0;
-    const rawCess = Number(String(getVal('cess') || 0).replace(/,/g, '')) || 0;
+    const parsedInvoiceValue = parseB2bNumericCell(getVal('invoiceValue'));
+    const rawPlaceOfSupply = String(getVal('placeOfSupply') || '').trim();
+    const rawReverseChargeInput = String(getVal('reverseCharge') || '').trim().toUpperCase();
+    let rawReverseCharge = 'N';
+    let invalidReverseCharge = false;
+    if (rawReverseChargeInput === '' || rawReverseChargeInput === 'N' || rawReverseChargeInput === 'NO') {
+      rawReverseCharge = 'N';
+    } else if (rawReverseChargeInput === 'Y' || rawReverseChargeInput === 'YES') {
+      rawReverseCharge = 'Y';
+    } else {
+      invalidReverseCharge = true;
+    }
+
+    const parsedTaxableValue = parseB2bNumericCell(getVal('taxableValue'));
+    const parsedIgst = parseB2bNumericCell(getVal('integratedTax'));
+    const parsedCgst = parseB2bNumericCell(getVal('centralTax'));
+    const parsedSgst = parseB2bNumericCell(getVal('stateUtTax'));
+    const parsedCess = parseB2bNumericCell(getVal('cess'));
     const rawGstrPeriod = getVal('gstrPeriod');
     const rawFilingDate = parseB2bDateCell(getVal('filingDate'));
-    let rawItc = String(getVal('itcAvailability') || 'Yes').trim();
-    if (rawItc.toLowerCase() === 'y' || rawItc.toLowerCase() === 'yes') rawItc = 'Yes';
-    else if (rawItc.toLowerCase() === 'n' || rawItc.toLowerCase() === 'no') rawItc = 'No';
+
+    const rawItcInput = String(getVal('itcAvailability') || '').trim().toLowerCase();
+    let rawItc: 'Yes' | 'No' = 'Yes';
+    let invalidItc = false;
+    if (rawItcInput === '' || rawItcInput === 'y' || rawItcInput === 'yes') {
+      rawItc = 'Yes';
+    } else if (rawItcInput === 'n' || rawItcInput === 'no') {
+      rawItc = 'No';
+    } else {
+      invalidItc = true;
+    }
 
     const rawReason = String(getVal('reason') || '').trim() || undefined;
-    const rawTaxRate = getVal('applicableTaxRate') ? Number(getVal('applicableTaxRate')) : undefined;
-    const rawSource = String(getVal('source') || 'GSTR-1').trim() || 'GSTR-1';
+    const parsedTaxRate = parseB2bNumericCell(getVal('applicableTaxRate'));
+    const rawTaxRate = parsedTaxRate.present && !parsedTaxRate.invalid ? parsedTaxRate.value : undefined;
+    const rawSource = String(getVal('source') || '').trim() || undefined;
     const rawIrn = String(getVal('irn') || '').trim() || undefined;
     const rawIrnDate = parseB2bDateCell(getVal('irnDate')) || undefined;
 
@@ -229,7 +264,7 @@ export function previewB2bWorkbook(
         rowNumber,
         invoiceNumber: rawInvoiceNumber || undefined,
         supplierGstin: rawGstin || undefined,
-        issue: `Missing or invalid GSTR Period: "${rawGstrPeriod || 'BLANK'}". Valid period required (e.g. "August 2026").`,
+        issue: `Missing or invalid GSTR Period: "${rawGstrPeriod || 'BLANK'}". Valid period required (e.g. "08-2026" or "Aug 2026").`,
       });
       const unassignedKey = 'UNASSIGNED';
       const pEntry = periodDistributionMap.get(unassignedKey) || {
@@ -244,11 +279,12 @@ export function previewB2bWorkbook(
       continue;
     }
 
-    if (!rawGstin || rawGstin.length < 10) {
+    if (!isValidGstin(rawGstin)) {
       errors.push({
         rowNumber,
-        invoiceNumber: rawInvoiceNumber,
-        issue: `Invalid Supplier GSTIN: "${rawGstin}". Must be a valid 15-character GSTIN.`,
+        invoiceNumber: rawInvoiceNumber || undefined,
+        supplierGstin: rawGstin || undefined,
+        issue: `Invalid Supplier GSTIN: "${rawGstin}". Must match the 15-character GSTIN format.`,
       });
       continue;
     }
@@ -272,6 +308,44 @@ export function previewB2bWorkbook(
       continue;
     }
 
+    const numericFields = [
+      { label: 'Invoice value', parsed: parsedInvoiceValue },
+      { label: 'Taxable value', parsed: parsedTaxableValue },
+      { label: 'Integrated Tax', parsed: parsedIgst },
+      { label: 'Central Tax', parsed: parsedCgst },
+      { label: 'State/UT Tax', parsed: parsedSgst },
+      { label: 'Cess', parsed: parsedCess },
+      { label: 'Applicable tax rate', parsed: parsedTaxRate },
+    ];
+    const badNum = numericFields.find((f) => f.parsed.invalid || f.parsed.value < 0);
+    if (badNum) {
+      errors.push({
+        rowNumber,
+        invoiceNumber: rawInvoiceNumber,
+        supplierGstin: rawGstin,
+        issue: `${badNum.label} must be a valid non-negative number.`,
+      });
+      continue;
+    }
+    if (invalidReverseCharge) {
+      errors.push({
+        rowNumber,
+        invoiceNumber: rawInvoiceNumber,
+        supplierGstin: rawGstin,
+        issue: `Invalid Reverse Charge flag "${rawReverseChargeInput}". Expected Y/N or Yes/No.`,
+      });
+      continue;
+    }
+    if (invalidItc) {
+      errors.push({
+        rowNumber,
+        invoiceNumber: rawInvoiceNumber,
+        supplierGstin: rawGstin,
+        issue: `Invalid ITC Availability flag "${rawItcInput}". Expected Yes/No.`,
+      });
+      continue;
+    }
+
     const pKey = normPeriod.periodKey;
     const pEntry = periodDistributionMap.get(pKey) || {
       displayPeriod: normPeriod.displayPeriod,
@@ -284,7 +358,7 @@ export function previewB2bWorkbook(
     const uniqueKey = `${rawGstin}_${rawInvoiceNumber.toUpperCase()}_${rawInvoiceType.toUpperCase()}`;
     const existingRecord = existingInvoiceMap.get(uniqueKey);
     const isDuplicateInFile = seenInFileSet.has(uniqueKey);
-    const totalGst = round2(rawIgst + rawCgst + rawSgst + rawCess);
+    const totalGst = round2(dAdd(dAdd(parsedIgst.value, parsedCgst.value), dAdd(parsedSgst.value, parsedCess.value)));
 
     const invoiceDraft = {
       supplierGstin: rawGstin,
@@ -292,14 +366,14 @@ export function previewB2bWorkbook(
       invoiceNumber: rawInvoiceNumber,
       invoiceType: rawInvoiceType,
       invoiceDate: rawInvoiceDate,
-      invoiceValue: round2(rawInvoiceValue),
+      invoiceValue: parsedInvoiceValue.present ? round2(parsedInvoiceValue.value) : 0,
       placeOfSupply: rawPlaceOfSupply || undefined,
       reverseCharge: rawReverseCharge,
-      taxableValue: round2(rawTaxableValue),
-      integratedTax: round2(rawIgst),
-      centralTax: round2(rawCgst),
-      stateUtTax: round2(rawSgst),
-      cess: round2(rawCess),
+      taxableValue: parsedTaxableValue.present ? round2(parsedTaxableValue.value) : 0,
+      integratedTax: parsedIgst.present ? round2(parsedIgst.value) : 0,
+      centralTax: parsedCgst.present ? round2(parsedCgst.value) : 0,
+      stateUtTax: parsedSgst.present ? round2(parsedSgst.value) : 0,
+      cess: parsedCess.present ? round2(parsedCess.value) : 0,
       totalGst,
       gstrPeriod: normPeriod.displayPeriod,
       periodKey: normPeriod.periodKey,
@@ -402,18 +476,18 @@ export function generateB2bExcelExport(invoices: B2bInvoice[], reportTitle = 'B2
     'ITC availability': inv.itcAvailability,
     'Reason': inv.reason || '—',
     'Applicable % of tax rate': inv.applicableTaxRate ?? '—',
-    'Source': inv.source || 'GSTR-1',
+    'Source': inv.source || '—',
     'IRN': inv.irn || '—',
     'IRN date': inv.irnDate || '—',
   }));
 
-  const totalInvVal = invoices.reduce((s, i) => s + i.invoiceValue, 0);
-  const totalTaxVal = invoices.reduce((s, i) => s + i.taxableValue, 0);
-  const totalIgst = invoices.reduce((s, i) => s + i.integratedTax, 0);
-  const totalCgst = invoices.reduce((s, i) => s + i.centralTax, 0);
-  const totalSgst = invoices.reduce((s, i) => s + i.stateUtTax, 0);
-  const totalCess = invoices.reduce((s, i) => s + i.cess, 0);
-  const totalGst = invoices.reduce((s, i) => s + i.totalGst, 0);
+  const totalInvVal = invoices.reduce((s, i) => dAdd(s, i.invoiceValue), 0);
+  const totalTaxVal = invoices.reduce((s, i) => dAdd(s, i.taxableValue), 0);
+  const totalIgst = invoices.reduce((s, i) => dAdd(s, i.integratedTax), 0);
+  const totalCgst = invoices.reduce((s, i) => dAdd(s, i.centralTax), 0);
+  const totalSgst = invoices.reduce((s, i) => dAdd(s, i.stateUtTax), 0);
+  const totalCess = invoices.reduce((s, i) => dAdd(s, i.cess), 0);
+  const totalGst = invoices.reduce((s, i) => dAdd(s, i.totalGst), 0);
 
   rows.push({
     'S.No': '' as any,
@@ -474,9 +548,9 @@ export function generateB2bMonthlySummaryExcel(summaries: B2bMonthlySummary[], f
   }));
 
   const totalInvoices = summaries.reduce((sum, s) => sum + s.invoiceCount, 0);
-  const totalInvVal = summaries.reduce((sum, s) => sum + s.totalInvoiceValue, 0);
-  const totalTaxVal = summaries.reduce((sum, s) => sum + s.totalTaxableValue, 0);
-  const totalGst = summaries.reduce((sum, s) => sum + s.totalGst, 0);
+  const totalInvVal = summaries.reduce((sum, s) => dAdd(sum, s.totalInvoiceValue), 0);
+  const totalTaxVal = summaries.reduce((sum, s) => dAdd(sum, s.totalTaxableValue), 0);
+  const totalGst = summaries.reduce((sum, s) => dAdd(sum, s.totalGst), 0);
 
   rows.push({
     'S.No': '' as any,
@@ -487,10 +561,10 @@ export function generateB2bMonthlySummaryExcel(summaries: B2bMonthlySummary[], f
     'Unique Suppliers': '' as any,
     'Invoice Value (INR)': round2(totalInvVal),
     'Taxable Value (INR)': round2(totalTaxVal),
-    'Integrated Tax (INR)': round2(summaries.reduce((sum, s) => sum + s.totalIgst, 0)),
-    'Central Tax (INR)': round2(summaries.reduce((sum, s) => sum + s.totalCgst, 0)),
-    'State/UT Tax (INR)': round2(summaries.reduce((sum, s) => sum + s.totalSgst, 0)),
-    'Cess (INR)': round2(summaries.reduce((sum, s) => sum + s.totalCess, 0)),
+    'Integrated Tax (INR)': round2(summaries.reduce((sum, s) => dAdd(sum, s.totalIgst), 0)),
+    'Central Tax (INR)': round2(summaries.reduce((sum, s) => dAdd(sum, s.totalCgst), 0)),
+    'State/UT Tax (INR)': round2(summaries.reduce((sum, s) => dAdd(sum, s.totalSgst), 0)),
+    'Cess (INR)': round2(summaries.reduce((sum, s) => dAdd(sum, s.totalCess), 0)),
     'Total GST (INR)': round2(totalGst),
     'ITC Available Count': summaries.reduce((sum, s) => sum + s.itcAvailableCount, 0),
     'Reverse Charge Count': summaries.reduce((sum, s) => sum + s.reverseChargeCount, 0),

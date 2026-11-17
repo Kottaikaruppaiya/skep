@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, PlusCircle, ShieldAlert, ShieldCheck, UserCheck, Edit, Lock, Trash2 } from 'lucide-react';
 import { User, Role } from '../types/index.ts';
 import { api } from '../api/client.ts';
+import { ConfirmationModal } from '../components/ConfirmationModal.tsx';
 
 export const UserManagementView: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -9,6 +10,7 @@ export const UserManagementView: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTargetUser, setDeleteTargetUser] = useState<User | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -93,19 +95,19 @@ export const UserManagementView: React.FC = () => {
     }
   };
 
-  const handleDeleteUser = async (u: User) => {
-    const ok = window.confirm(`Permanently delete user account "${u.name}" (${u.email})? This action cannot be undone.`);
-    if (!ok) return;
-
-    setDeletingId(u.id);
+  const handleConfirmDeleteUser = async () => {
+    if (!deleteTargetUser) return;
+    setDeletingId(deleteTargetUser.id);
     setError(null);
     try {
-      await api.deleteUser(u.id);
-      setActionSuccess(`User "${u.name}" deleted successfully.`);
+      await api.deleteUser(deleteTargetUser.id);
+      setActionSuccess(`User "${deleteTargetUser.name}" deleted successfully.`);
+      setDeleteTargetUser(null);
       setTimeout(() => setActionSuccess(null), 4000);
       loadUsers();
     } catch (err: any) {
       setError(err.message || 'Failed to delete user.');
+      throw err;
     } finally {
       setDeletingId(null);
     }
@@ -208,7 +210,8 @@ export const UserManagementView: React.FC = () => {
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDeleteUser(u)}
+                        type="button"
+                        onClick={() => setDeleteTargetUser(u)}
                         disabled={deletingId === u.id}
                         className="p-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-[11px] font-semibold transition-colors disabled:opacity-50"
                         title="Delete User Account"
@@ -306,6 +309,17 @@ export const UserManagementView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={Boolean(deleteTargetUser)}
+        title="Delete User Account"
+        itemName={deleteTargetUser ? `${deleteTargetUser.name} (${deleteTargetUser.email})` : ''}
+        itemType="User Account"
+        message={`Permanently delete user account "${deleteTargetUser?.name || ''}" (${deleteTargetUser?.email || ''})? This action cannot be undone.`}
+        isLoading={Boolean(deleteTargetUser && deletingId === deleteTargetUser.id)}
+        onConfirm={handleConfirmDeleteUser}
+        onCancel={() => setDeleteTargetUser(null)}
+      />
     </div>
   );
 };

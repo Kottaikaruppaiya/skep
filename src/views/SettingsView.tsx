@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Save, CheckCircle2, ShieldAlert, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { AppSettings, Role } from '../types/index.ts';
 import { api } from '../api/client.ts';
+import { ConfirmationModal } from '../components/ConfirmationModal.tsx';
 
 interface SettingsViewProps {
   userRole: Role;
@@ -25,6 +26,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ userRole, onPurgeCom
   const [panNumber, setPanNumber] = useState('AAECS9812K');
 
   // Purge state
+  const [isPurgeConfirmOpen, setIsPurgeConfirmOpen] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeSuccess, setPurgeSuccess] = useState<string | null>(null);
   const [purgeError, setPurgeError] = useState<string | null>(null);
@@ -61,16 +63,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ userRole, onPurgeCom
     }
   };
 
-  const handlePurgeAllRecords = async () => {
-    const confirmation = window.confirm(
-      'WARNING: DATA RESET CONFIRMATION\n\n' +
-      'Are you ABSOLUTELY sure you want to permanently delete all export shipments, inward payments, allocations, incentives, BRC records, and documents?\n\n' +
-      '• Core users, financial years, consignee & bank master registries will be preserved.\n' +
-      '• This action is IRREVERSIBLE.\n\n' +
-      'Click OK to proceed with purging all records.'
-    );
-    if (!confirmation) return;
-
+  const handleConfirmPurgeAllRecords = async () => {
     setIsPurging(true);
     setPurgeError(null);
     setPurgeSuccess(null);
@@ -80,9 +73,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ userRole, onPurgeCom
       setPurgeSuccess(
         `All records successfully purged from system! Cleared: ${res.cleared.shipments} shipments, ${res.cleared.payments} payments, ${res.cleared.allocations} allocations, ${res.cleared.incentives} incentives, ${res.cleared.documents} documents.`
       );
+      setIsPurgeConfirmOpen(false);
       if (onPurgeComplete) onPurgeComplete();
     } catch (err: any) {
       setPurgeError(err.message || 'Failed to purge operational records.');
+      throw err;
     } finally {
       setIsPurging(false);
     }
@@ -252,7 +247,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ userRole, onPurgeCom
             </span>
             <button
               type="button"
-              onClick={handlePurgeAllRecords}
+              onClick={() => {
+                setPurgeError(null);
+                setIsPurgeConfirmOpen(true);
+              }}
               disabled={isPurging}
               className="h-9 px-4 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-lg font-bold text-xs shadow-xs transition-colors inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
@@ -262,6 +260,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ userRole, onPurgeCom
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={isPurgeConfirmOpen}
+        title="Purge All Operational Records"
+        itemName="All Shipments, Payments, Allocations, Incentives, BRC & Documents"
+        itemType="Database Records"
+        confirmText="Purge All Records"
+        message="This will permanently delete all export shipments, inward payments, allocations, incentives, BRC records, and documents. Core users, financial years, consignee & bank master registries will be preserved. This action is irreversible."
+        isLoading={isPurging}
+        errorMessage={purgeError}
+        onConfirm={handleConfirmPurgeAllRecords}
+        onCancel={() => setIsPurgeConfirmOpen(false)}
+      />
     </div>
   );
 };

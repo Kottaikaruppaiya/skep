@@ -22,6 +22,11 @@ import {
 import { api } from '../../api/client.ts';
 import type { B2bMonthlySummary, Role } from '../../types/index.ts';
 import { B2bAddInvoiceModal } from './B2bAddInvoiceModal.tsx';
+import {
+  getCurrentIndianFinancialYearLabel,
+  getDefaultGstrPeriodLabel,
+  getFiscalYearOptions,
+} from '../../shared/utils/normalizer.ts';
 
 interface B2bMonthlyViewProps {
   userRole: Role;
@@ -29,13 +34,15 @@ interface B2bMonthlyViewProps {
 }
 
 export const B2bMonthlyView: React.FC<B2bMonthlyViewProps> = ({ userRole, onOpenMonth }) => {
+  const currentFy = getCurrentIndianFinancialYearLabel();
+  const fyOptions = getFiscalYearOptions();
   const [summaries, setSummaries] = useState<B2bMonthlySummary[]>([]);
-  const [selectedFy, setSelectedFy] = useState<string>('2026-27');
+  const [selectedFy, setSelectedFy] = useState<string>(currentFy);
   const [monthSearch, setMonthSearch] = useState<string>('');
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [targetAddPeriod, setTargetAddPeriod] = useState<string>('August 2026');
+  const [targetAddPeriod, setTargetAddPeriod] = useState<string>(() => getDefaultGstrPeriodLabel());
 
   const isViewer = userRole === 'VIEWER';
 
@@ -117,9 +124,11 @@ export const B2bMonthlyView: React.FC<B2bMonthlyViewProps> = ({ userRole, onOpen
               onChange={(e) => setSelectedFy(e.target.value)}
               className="bg-white text-xs font-semibold text-slate-800 rounded-md px-2 py-1 border-0 shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden cursor-pointer"
             >
-              <option value="2026-27">FY 2026-27 (Current)</option>
-              <option value="2025-26">FY 2025-26</option>
-              <option value="2027-28">FY 2027-28</option>
+              {fyOptions.map((fy) => (
+                <option key={fy} value={fy}>
+                  FY {fy}{fy === currentFy ? ' (Current)' : ''}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -134,7 +143,7 @@ export const B2bMonthlyView: React.FC<B2bMonthlyViewProps> = ({ userRole, onOpen
           {!isViewer && (
             <button
               onClick={() => {
-                setTargetAddPeriod('August 2026');
+                setTargetAddPeriod(getDefaultGstrPeriodLabel());
                 setIsAddModalOpen(true);
               }}
               className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"

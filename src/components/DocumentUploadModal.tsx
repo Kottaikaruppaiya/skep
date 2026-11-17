@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { X, Upload, AlertCircle, CheckCircle2, FileText } from 'lucide-react';
 import { Shipment, DocumentCategory } from '../types/index.ts';
 import { api } from '../api/client.ts';
+import { getCurrentIndianFinancialYearLabel } from '../shared/utils/normalizer.ts';
 
 interface DocumentUploadModalProps {
   shipment: Shipment | null;
@@ -41,7 +42,7 @@ export const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
       formData.append('file', file);
       formData.append('category', category);
       formData.append('shipmentId', shipment.id);
-      formData.append('financialYear', shipment.financialYearLabel || '2026-27');
+      formData.append('financialYear', shipment.financialYearLabel || getCurrentIndianFinancialYearLabel());
       formData.append('invoiceKey', shipment.normalizedInvoiceKey);
 
       await api.uploadDocument(formData);

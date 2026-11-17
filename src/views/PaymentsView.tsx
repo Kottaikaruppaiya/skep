@@ -41,9 +41,9 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
   // New Payment Form
   const [irmNumber, setIrmNumber] = useState('');
   const [senderReference, setSenderReference] = useState('');
-  const [verifiedAmount, setVerifiedAmount] = useState<number>(50000);
-  const [inrAmount, setInrAmount] = useState<number>(4225000);
-  const [exchangeRate, setExchangeRate] = useState<number>(84.5);
+  const [verifiedAmount, setVerifiedAmount] = useState<number>(0);
+  const [inrAmount, setInrAmount] = useState<number>(0);
+  const [exchangeRate, setExchangeRate] = useState<number>(0);
   const [valueDate, setValueDate] = useState(new Date().toISOString().split('T')[0]);
   const [creditDate, setCreditDate] = useState(new Date().toISOString().split('T')[0]);
   const [bankId, setBankId] = useState(banks[0]?.id || '');
@@ -95,13 +95,17 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
       setFormError('Please configure an Authorised Dealer Bank first.');
       return;
     }
+    if (!Number.isFinite(verifiedAmount) || verifiedAmount <= 0) {
+      setFormError('Verified USD Amount must be greater than zero.');
+      return;
+    }
     try {
       await api.createPayment({
         irmNumber,
         senderReference,
         verifiedAmount,
-        inrAmount,
-        exchangeRate,
+        inrAmount: inrAmount > 0 ? inrAmount : undefined,
+        exchangeRate: exchangeRate > 0 ? exchangeRate : undefined,
         valueDate,
         creditDate,
         bankId: effectiveBankId,
@@ -111,6 +115,9 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
       setShowNewModal(false);
       setIrmNumber('');
       setSenderReference('');
+      setVerifiedAmount(0);
+      setExchangeRate(0);
+      setInrAmount(0);
       setRemarks('');
       setActionMessage({ text: `Payment ${irmNumber} created successfully.`, type: 'success' });
       setTimeout(() => setActionMessage(null), 4000);
@@ -532,12 +539,14 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                   <input
                     type="number"
                     step="0.01"
+                    min="0.01"
                     required
-                    value={verifiedAmount}
+                    placeholder="e.g. 25000.00"
+                    value={verifiedAmount || ''}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value) || 0;
                       setVerifiedAmount(v);
-                      setInrAmount(Math.round(v * exchangeRate * 100) / 100);
+                      setInrAmount(exchangeRate > 0 ? Math.round(v * exchangeRate * 100) / 100 : 0);
                     }}
                     className="w-full border border-slate-300 rounded-lg p-2 font-bold"
                   />
@@ -548,11 +557,13 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                   <input
                     type="number"
                     step="0.0001"
-                    value={exchangeRate}
+                    min="0"
+                    placeholder="e.g. 85.40"
+                    value={exchangeRate || ''}
                     onChange={(e) => {
                       const r = parseFloat(e.target.value) || 0;
                       setExchangeRate(r);
-                      setInrAmount(Math.round(verifiedAmount * r * 100) / 100);
+                      setInrAmount(verifiedAmount > 0 && r > 0 ? Math.round(verifiedAmount * r * 100) / 100 : 0);
                     }}
                     className="w-full border border-slate-300 rounded-lg p-2 font-semibold"
                   />
@@ -563,7 +574,9 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                   <input
                     type="number"
                     step="0.01"
-                    value={inrAmount}
+                    min="0"
+                    placeholder="Optional INR credit"
+                    value={inrAmount || ''}
                     onChange={(e) => setInrAmount(parseFloat(e.target.value) || 0)}
                     className="w-full border border-slate-300 rounded-lg p-2 font-bold"
                   />

@@ -4,28 +4,34 @@
  */
 
 import { z } from 'zod';
+import { isValidGstin } from '../../shared/utils/gstin.ts';
+
+const gstinSchema = z
+  .string()
+  .trim()
+  .refine((val) => isValidGstin(val), 'Valid 15-character GSTIN (e.g. 33AABCU9603R1ZM) is required.');
 
 export const createB2bInvoiceSchema = z
   .object({
-    supplierGstin: z.string().trim().length(15, 'Valid 15-character Supplier GSTIN is required.'),
+    supplierGstin: gstinSchema,
     supplierName: z.string().trim().optional(),
     invoiceNumber: z.string().trim().min(1, 'Invoice Number is required.'),
     invoiceType: z.string().trim().default('Regular'),
     invoiceDate: z.string().trim().min(1, 'Invoice Date is required.'),
-    invoiceValue: z.coerce.number().optional(),
+    invoiceValue: z.coerce.number().min(0, 'Invoice Value cannot be negative.').optional(),
     placeOfSupply: z.string().optional(),
     reverseCharge: z.string().optional(),
-    taxableValue: z.coerce.number().default(0),
-    integratedTax: z.coerce.number().default(0),
-    centralTax: z.coerce.number().default(0),
-    stateUtTax: z.coerce.number().default(0),
-    cess: z.coerce.number().default(0),
+    taxableValue: z.coerce.number().min(0, 'Taxable Value cannot be negative.').default(0),
+    integratedTax: z.coerce.number().min(0, 'IGST cannot be negative.').default(0),
+    centralTax: z.coerce.number().min(0, 'CGST cannot be negative.').default(0),
+    stateUtTax: z.coerce.number().min(0, 'SGST cannot be negative.').default(0),
+    cess: z.coerce.number().min(0, 'Cess cannot be negative.').default(0),
     gstrPeriod: z.string().trim().min(1, 'GSTR Period is required.'),
     filingDate: z.string().optional(),
     itcAvailability: z.string().optional(),
     reason: z.string().optional(),
-    applicableTaxRate: z.coerce.number().optional(),
-    source: z.string().optional(),
+    applicableTaxRate: z.union([z.coerce.number().min(0).max(100), z.null()]).optional(),
+    source: z.union([z.string(), z.null()]).optional(),
     irn: z.string().optional(),
     irnDate: z.string().optional(),
   })
@@ -34,7 +40,7 @@ export const createB2bInvoiceSchema = z
 export const updateB2bInvoiceSchema = createB2bInvoiceSchema.partial();
 
 export const createSupplierSchema = z.object({
-  gstin: z.string().trim().length(15, 'Valid 15-character GSTIN is required.'),
+  gstin: gstinSchema,
   legalName: z.string().trim().min(1, 'Supplier legal name is required.'),
   tradeName: z.string().optional(),
   address: z.string().optional(),

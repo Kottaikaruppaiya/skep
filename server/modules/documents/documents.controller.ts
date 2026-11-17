@@ -59,7 +59,7 @@ export const documentsController = {
           category: (req.body.category || 'COMMERCIAL_INVOICE') as DocumentCategory,
           shipmentId: req.body.shipmentId || undefined,
           paymentId: req.body.paymentId || undefined,
-          financialYear: req.body.financialYear || '2026-27',
+          financialYear: req.body.financialYear || undefined,
           invoiceKey: req.body.invoiceKey || undefined,
         },
         req.user!.id
@@ -77,7 +77,13 @@ export const documentsController = {
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.originalFilename)}"`);
       res.setHeader('Content-Type', doc.mimeType || 'application/octet-stream');
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      stream.on('error', (err) => next(err));
+      stream.on('error', (err) => {
+        if (res.headersSent) {
+          res.destroy(err);
+        } else {
+          next(err);
+        }
+      });
       stream.pipe(res);
     } catch (err) {
       next(err);

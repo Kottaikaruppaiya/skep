@@ -5,7 +5,7 @@
 
 import type { IncentiveRecord, IncentiveStatus, IncentiveType } from '../../../src/types/index.ts';
 import type { DbClient } from '../../config/prisma.ts';
-import { ConflictError, NotFoundError } from '../../shared/errors/app-error.ts';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors/app-error.ts';
 import { parseDateOptional } from '../../shared/utils/date.ts';
 import { round2 } from '../../shared/utils/decimal.ts';
 import { deriveIncentiveStatus } from './incentive.calculator.ts';
@@ -27,8 +27,24 @@ export const incentivesService = {
     const exists = await incentivesRepository.shipmentExists(data.shipmentId, db);
     if (!exists) throw new NotFoundError('Shipment not found.');
 
+    const existingType = await incentivesRepository.findByShipmentAndType(data.shipmentId, data.type, db);
+    if (existingType) {
+      throw new ConflictError(
+        `An incentive claim of type '${data.type}' already exists for this shipment. Update the existing claim instead.`
+      );
+    }
+
     const claimedAmount = round2(data.claimedAmount);
     const receivedAmount = round2(data.receivedAmount || 0);
+    if (claimedAmount < 0 || receivedAmount < 0) {
+      throw new ValidationError('Incentive claimed and received amounts cannot be negative.');
+    }
+    if (receivedAmount > claimedAmount + 0.001) {
+      throw new ValidationError(
+        `Received amount (₹${receivedAmount.toFixed(2)}) cannot exceed claimed amount (₹${claimedAmount.toFixed(2)}).`
+      );
+    }
+
     const status = deriveIncentiveStatus(claimedAmount, receivedAmount);
 
     return incentivesRepository.create(
@@ -88,6 +104,15 @@ export const incentivesService = {
 
     const claimedAmount = updates.claimedAmount !== undefined ? round2(updates.claimedAmount) : existing.claimedAmount;
     const receivedAmount = updates.receivedAmount !== undefined ? round2(updates.receivedAmount) : existing.receivedAmount;
+    if (claimedAmount < 0 || receivedAmount < 0) {
+      throw new ValidationError('Incentive claimed and received amounts cannot be negative.');
+    }
+    if (receivedAmount > claimedAmount + 0.001) {
+      throw new ValidationError(
+        `Received amount (₹${receivedAmount.toFixed(2)}) cannot exceed claimed amount (₹${claimedAmount.toFixed(2)}).`
+      );
+    }
+
     const status = deriveIncentiveStatus(claimedAmount, receivedAmount, updates.status);
 
     return incentivesRepository.update(

@@ -41,7 +41,7 @@ export const shipmentsController = {
   async checkUnique(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const invoiceNumber = String(req.query.invoiceNumber || '');
-      const financialYearId = String(req.query.financialYearId || 'fy-2026-27');
+      const financialYearId = req.query.financialYearId ? String(req.query.financialYearId) : undefined;
       res.json(await shipmentsService.checkUniqueInvoice(invoiceNumber, financialYearId));
     } catch (err) {
       next(err);

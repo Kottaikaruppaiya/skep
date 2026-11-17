@@ -6,6 +6,7 @@
 import type { NextFunction, Response } from 'express';
 import type { AuthenticatedRequest } from '../../middleware/auth.middleware.ts';
 import { ValidationError } from '../../shared/errors/app-error.ts';
+import { getCurrentIndianFinancialYearLabel } from '../../shared/utils/gstr-period.ts';
 import { generateB2bExcelExport, generateB2bMonthlySummaryExcel } from './b2b.excel.ts';
 import { b2bService } from './b2b.service.ts';
 
@@ -202,7 +203,7 @@ export const b2bController = {
       const { reportType, periodKey, financialYear, supplierGstin } = req.query as Record<string, any>;
 
       if (reportType === 'monthly_summary') {
-        const fy = financialYear || '2026-27';
+        const fy = financialYear && financialYear !== 'ALL' ? String(financialYear) : getCurrentIndianFinancialYearLabel();
         const summaries = await b2bService.getMonthlySummaries(fy);
         const buffer = generateB2bMonthlySummaryExcel(summaries, fy);
         const filename = `SKE_B2B_Monthly_Summary_${fy}_${new Date().toISOString().split('T')[0]}.xlsx`;

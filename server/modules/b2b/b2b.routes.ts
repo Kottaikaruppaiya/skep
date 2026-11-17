@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware.ts';
 import { requireRole } from '../../middleware/role.middleware.ts';
-import { uploadMiddleware } from '../../middleware/upload.middleware.ts';
+import { spreadsheetUpload } from '../../middleware/upload.middleware.ts';
 import { validateBody } from '../../middleware/validate.middleware.ts';
 import { b2bController } from './b2b.controller.ts';
 import {
@@ -63,7 +63,7 @@ b2bRouter.post(
   '/import/preview',
   authenticate,
   requireRole(['SUPER_ADMIN', 'ADMIN']),
-  uploadMiddleware.single('file'),
+  spreadsheetUpload.single('file'),
   b2bController.previewImport
 );
 b2bRouter.post(

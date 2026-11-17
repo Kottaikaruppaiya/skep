@@ -343,7 +343,7 @@ export const complianceApi = {
     mode: 'SKIP_EXISTING' | 'OVERWRITE_EXISTING' | 'INSERT_ALL',
     fileName: string,
     fileSizeBytes?: number
-  ): Promise<{ batchId: string; totalProcessed: number; inserted: number; updated: number; skipped: number }> {
+  ): Promise<{ batchId: string; totalProcessed: number; inserted: number; updated: number; skipped: number; failed?: number }> {
     return http.request('/b2b/import/commit', {
       method: 'POST',
       body: JSON.stringify({ previewData, mode, fileName, fileSizeBytes }),

@@ -13,6 +13,7 @@ import {
   checkDatabaseHealth,
   disconnectPrisma,
   isDatabaseConfigured,
+  isMockDatabaseAllowed,
 } from './server/config/prisma.ts';
 import { seedService } from './server/modules/settings/seed.service.ts';
 import { ocrWorker } from './server/workers/ocr.worker.ts';
@@ -59,9 +60,19 @@ async function startServer() {
         standbyRetryTimer.unref();
       }
     }
-  } else {
+  } else if (isMockDatabaseAllowed()) {
     console.warn(
-      '[SKE Server] DATABASE_URL not configured — running in unconfigured standby mode (/health ready, /api/* returns 503 DATABASE_UNCONFIGURED).'
+      '[SKE Server] DATABASE_URL not configured (ALLOW_MOCK_DB=true) — running with seeded in-memory data store for development preview.'
+    );
+    try {
+      await seedService.seedIfEmpty();
+    } catch (err) {
+      console.warn('[SKE Server] In-memory seed fallback check warning:', err instanceof Error ? err.message : err);
+    }
+    ocrWorker.startPolling();
+  } else {
+    console.error(
+      '[SKE Server] DATABASE_URL is not configured and mock fallback is disabled — API routes will fail closed with 503 until DATABASE_URL is provided.'
     );
   }
 

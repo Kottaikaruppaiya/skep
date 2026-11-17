@@ -35,12 +35,13 @@ export const ocrService = {
       buffer?: Buffer;
     }
   ): Promise<OcrJob> {
+    const resolvedFyId = input.financialYearId?.trim() || (await mastersService.getCurrentFinancialYear()).id;
     const job = await ocrRepository.create({
       documentId: input.documentId,
       originalFilename: input.originalFilename,
       fileSizeBytes: input.fileSizeBytes,
       category: input.category,
-      financialYearId: input.financialYearId || 'fy-2026-27',
+      financialYearId: resolvedFyId,
     });
 
     if (input.buffer) {
@@ -118,7 +119,7 @@ export const ocrService = {
           throw new ValidationError('Invoice Number is required to commit approved shipment data.');
         }
 
-        const fyId = job.financialYearId || 'fy-2026-27';
+        const fyId = job.financialYearId || (await mastersService.getCurrentFinancialYear(tx)).id;
         const normalizedKey = normalizeInvoiceKey(invoiceNumber);
         const existing = await shipmentsService.getShipmentByNormalizedKey(normalizedKey, fyId, tx);
 
@@ -146,6 +147,70 @@ export const ocrService = {
             reviewStatus: 'CONFIRMED',
           });
         } else {
+          const invoiceValueUsd = Number(reviewedValues.invoiceValueUsd || 0);
+          if (!Number.isFinite(invoiceValueUsd) || invoiceValueUsd <= 0) {
+            throw new ValidationError('Invoice Value (USD) must be greater than zero to create a shipment from OCR approval.');
+          }
+          const sbExchangeRate = Number(reviewedValues.sbExchangeRate || 0);
+          if (!Number.isFinite(sbExchangeRate) || sbExchangeRate <= 0) {
+            throw new ValidationError('Customs Exchange Rate must be greater than zero to create a shipment from OCR approval.');
+          }
+
+          let linkedFircPaymentId = reviewedValues.initialFircPaymentId
+            ? String(reviewedValues.initialFircPaymentId).trim()
+            : '';
+
+          if (!linkedFircPaymentId) {
+            const irmRef = String(reviewedValues.fircIrmNumber || reviewedValues.irmNumber || '').trim().toUpperCase();
+            if (!irmRef) {
+              throw new ValidationError(
+                'Mandatory Rule Violation: Creating a new shipment via OCR approval requires linking an existing FIRC payment (initialFircPaymentId) or providing a valid FIRC IRM Number, positive remittance amount, and AD Bank.'
+              );
+            }
+
+            let payment = await paymentsService.findByIrmNumber(irmRef, tx);
+            if (!payment) {
+              const fircAmt = Number(reviewedValues.fircAmountUsd || reviewedValues.verifiedAmount || 0);
+              if (!Number.isFinite(fircAmt) || fircAmt <= 0) {
+                throw new ValidationError('FIRC Verified Remittance Amount (USD) must be greater than zero.');
+              }
+              const resolvedBankId = await mastersService.resolveBankId(
+                reviewedValues.fircBankId || reviewedValues.bankId,
+                reviewedValues.fircBankName || reviewedValues.bankName,
+                tx
+              );
+              const rawRate = reviewedValues.fircExchangeRate ?? reviewedValues.exchangeRate;
+              const fircRate = rawRate !== undefined && rawRate !== null && rawRate !== '' && Number(rawRate) > 0
+                ? Number(rawRate)
+                : undefined;
+              const rawInr = reviewedValues.fircInrAmount ?? reviewedValues.inrAmount;
+              const fircInr = rawInr !== undefined && rawInr !== null && rawInr !== '' && Number(rawInr) > 0
+                ? Number(rawInr)
+                : fircRate
+                  ? Math.round(fircAmt * fircRate * 100) / 100
+                  : undefined;
+
+              payment = await paymentsService.createPayment(
+                {
+                  irmNumber: irmRef,
+                  senderReference: reviewedValues.fircSenderRef || undefined,
+                  currency: 'USD',
+                  verifiedAmount: fircAmt,
+                  exchangeRate: fircRate,
+                  inrAmount: fircInr,
+                  valueDate: reviewedValues.fircValueDate || reviewedValues.invoiceDate || new Date().toISOString().split('T')[0],
+                  creditDate: reviewedValues.fircCreditDate || reviewedValues.invoiceDate || new Date().toISOString().split('T')[0],
+                  bankId: resolvedBankId,
+                  purposeCode: 'P0103',
+                  remarks: `Created during OCR approval for ${invoiceNumber}`,
+                },
+                tx
+              );
+            }
+            linkedFircPaymentId = payment.id;
+            targetPayment = payment;
+          }
+
           const consignee = await mastersService.resolveOrCreateConsignee(
             {
               consigneeId: reviewedValues.consigneeId,
@@ -164,20 +229,20 @@ export const ocrService = {
               consigneeId: consignee.id,
               portCode: reviewedValues.portCode || 'INMAA1',
               packageCount: Number(reviewedValues.packageCount || 0),
-              invoiceValueUsd: Number(reviewedValues.invoiceValueUsd || 0),
+              invoiceValueUsd,
               shippingBillNumber: reviewedValues.shippingBillNumber || 'PENDING',
               shippingBillDate: reviewedValues.shippingBillDate || new Date().toISOString().split('T')[0],
-              sbExchangeRate: Number(reviewedValues.sbExchangeRate || 92.1),
+              sbExchangeRate,
               fobValueInr: Number(reviewedValues.fobValueInr || 0),
               blNumber: reviewedValues.blNumber,
               blDate: reviewedValues.blDate,
               vesselName: reviewedValues.vesselName,
               remarks: reviewedValues.remarks,
               reviewStatus: 'CONFIRMED',
-              initialFircPaymentId: reviewedValues.initialFircPaymentId,
-              initialFircDocumentUploaded: Boolean(
-                reviewedValues.initialFircPaymentId || reviewedValues.initialFircDocumentUploaded
-              ),
+              initialFircPaymentId: linkedFircPaymentId,
+              initialFircAllocationAmount: reviewedValues.initialFircAllocationAmount
+                ? Number(reviewedValues.initialFircAllocationAmount)
+                : undefined,
               incentives: {
                 dbkClaimed: Number(reviewedValues.dbkClaimed || 0),
                 rodtepClaimed: Number(reviewedValues.rodtepClaimed || 0),
@@ -205,26 +270,47 @@ export const ocrService = {
                   ? Number(reviewedValues.verifiedAmount)
                   : existingPayment.verifiedAmount,
               exchangeRate:
-                reviewedValues.exchangeRate !== undefined
-                  ? Number(reviewedValues.exchangeRate)
+                reviewedValues.exchangeRate !== undefined && reviewedValues.exchangeRate !== ''
+                  ? (reviewedValues.exchangeRate === null ? undefined : Number(reviewedValues.exchangeRate))
                   : existingPayment.exchangeRate,
               inrAmount:
-                reviewedValues.inrAmount !== undefined ? Number(reviewedValues.inrAmount) : existingPayment.inrAmount,
+                reviewedValues.inrAmount !== undefined && reviewedValues.inrAmount !== ''
+                  ? (reviewedValues.inrAmount === null ? undefined : Number(reviewedValues.inrAmount))
+                  : existingPayment.inrAmount,
               valueDate: reviewedValues.valueDate || existingPayment.valueDate,
               creditDate: reviewedValues.creditDate || existingPayment.creditDate,
             },
             tx
           );
         } else {
-          const resolvedBankId = await mastersService.resolveBankId(reviewedValues.bankId, undefined, tx);
+          const verifiedAmount = Number(reviewedValues.verifiedAmount || 0);
+          if (!Number.isFinite(verifiedAmount) || verifiedAmount <= 0) {
+            throw new ValidationError('Verified Remittance Amount (USD) must be greater than zero.');
+          }
+          const resolvedBankId = await mastersService.resolveBankId(
+            reviewedValues.bankId,
+            reviewedValues.bankName,
+            tx
+          );
+          const rawRate = reviewedValues.exchangeRate;
+          const exchangeRate = rawRate !== undefined && rawRate !== null && rawRate !== '' && Number(rawRate) > 0
+            ? Number(rawRate)
+            : undefined;
+          const rawInr = reviewedValues.inrAmount;
+          const inrAmount = rawInr !== undefined && rawInr !== null && rawInr !== '' && Number(rawInr) > 0
+            ? Number(rawInr)
+            : exchangeRate
+              ? Math.round(verifiedAmount * exchangeRate * 100) / 100
+              : undefined;
+
           targetPayment = await paymentsService.createPayment(
             {
               irmNumber,
               senderReference: reviewedValues.senderReference,
               currency: reviewedValues.currency || 'USD',
-              verifiedAmount: Number(reviewedValues.verifiedAmount || 0),
-              exchangeRate: Number(reviewedValues.exchangeRate || 93.28),
-              inrAmount: Number(reviewedValues.inrAmount || 0),
+              verifiedAmount,
+              exchangeRate,
+              inrAmount,
               valueDate: reviewedValues.valueDate || new Date().toISOString().split('T')[0],
               creditDate: reviewedValues.creditDate || new Date().toISOString().split('T')[0],
               bankId: resolvedBankId,

@@ -24,6 +24,12 @@ function mapShipmentRow(row: any, userNames: Map<string, string>): Shipment {
     allocatedByUserId: a.allocatedByUserId,
     allocatedByName: userNames.get(a.allocatedByUserId) || 'Admin',
     paymentIrm: a.payment?.irmNumber,
+    paymentBankName: a.payment?.bank?.name || undefined,
+    paymentExchangeRate:
+      a.payment?.exchangeRate !== null && a.payment?.exchangeRate !== undefined
+        ? toNumber(a.payment.exchangeRate)
+        : undefined,
+    paymentCreditDate: toDateOnlyString(a.payment?.creditDate),
   }));
 
   const documents = (row.documents || []).filter((d: any) => d.isCurrent).map(mapDocument);
@@ -39,7 +45,7 @@ function mapShipmentRow(row: any, userNames: Map<string, string>): Shipment {
   );
 
   const hasFircDoc = documents.some((d: any) => d.category === 'FIRC_PAYMENT');
-  const hasFircEvidence = hasFircDoc || allocations.length > 0;
+  const hasFircEvidence = allocations.length > 0 || hasFircDoc;
 
   return {
     id: row.id,
@@ -100,7 +106,14 @@ const shipmentInclude = {
   },
   allocations: {
     include: {
-      payment: { select: { irmNumber: true, exchangeRate: true } },
+      payment: {
+        select: {
+          irmNumber: true,
+          exchangeRate: true,
+          creditDate: true,
+          bank: { select: { name: true } },
+        },
+      },
     },
   },
   incentives: true,
@@ -230,6 +243,11 @@ export const shipmentsRepository = {
       select: { id: true },
     });
     return created;
+  },
+
+  async lockShipmentForUpdate(id: string, db: DbClient): Promise<{ id: string } | null> {
+    const rows = await db.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Shipment" WHERE id = ${id} FOR UPDATE`;
+    return rows[0] ?? null;
   },
 
   async updateRaw(id: string, data: Record<string, any>, db: DbClient = getPrisma()): Promise<void> {

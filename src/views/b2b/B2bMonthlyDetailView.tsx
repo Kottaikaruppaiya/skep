@@ -24,6 +24,8 @@ import {
 import { api } from '../../api/client.ts';
 import type { B2bInvoice, B2bMonthlySummary, Role } from '../../types/index.ts';
 import { B2bAddInvoiceModal } from './B2bAddInvoiceModal.tsx';
+import { ConfirmationModal } from '../../components/ConfirmationModal.tsx';
+import { getCurrentIndianFinancialYearLabel } from '../../shared/utils/normalizer.ts';
 
 interface B2bMonthlyDetailViewProps {
   periodKey: string;
@@ -52,6 +54,7 @@ export const B2bMonthlyDetailView: React.FC<B2bMonthlyDetailViewProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<B2bInvoice | null>(null);
   const [viewingInvoice, setViewingInvoice] = useState<B2bInvoice | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<B2bInvoice | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isViewer = userRole === 'VIEWER';
@@ -119,22 +122,16 @@ export const B2bMonthlyDetailView: React.FC<B2bMonthlyDetailViewProps> = ({
     return Array.from(map.entries()).map(([gstin, name]) => ({ gstin, name }));
   }, [invoices]);
 
-  const handleDelete = async (invoice: B2bInvoice) => {
+  const handleDelete = (invoice: B2bInvoice) => {
     if (isViewer) return;
-    if (
-      !confirm(
-        `Are you sure you want to delete invoice ${invoice.invoiceNumber} from ${invoice.supplierName}?`
-      )
-    ) {
-      return;
-    }
     setActionError(null);
-    try {
-      await api.deleteB2bInvoice(invoice.id);
-      loadMonthData();
-    } catch (err: any) {
-      setActionError(err.message || 'Failed to delete invoice.');
-    }
+    setDeleteTarget(invoice);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await api.deleteB2bInvoice(deleteTarget.id);
+    loadMonthData();
   };
 
   return (
@@ -158,7 +155,7 @@ export const B2bMonthlyDetailView: React.FC<B2bMonthlyDetailViewProps> = ({
                 {periodKey}
               </span>
               <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-medium">
-                FY {summary?.financialYear || '2026-27'}
+                FY {summary?.financialYear || getCurrentIndianFinancialYearLabel()}
               </span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mt-0.5">
@@ -565,7 +562,7 @@ export const B2bMonthlyDetailView: React.FC<B2bMonthlyDetailViewProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 font-semibold block">Return Source:</span>
-                <span>{viewingInvoice.source || 'GSTR-1'}</span>
+                <span>{viewingInvoice.source || '—'}</span>
               </div>
               {viewingInvoice.irn && (
                 <div className="col-span-2">
@@ -605,6 +602,16 @@ export const B2bMonthlyDetailView: React.FC<B2bMonthlyDetailViewProps> = ({
           defaultPeriodKey={summary?.displayPeriod || periodKey}
         />
       )}
+      <ConfirmationModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Delete B2B Invoice"
+        itemName={deleteTarget ? `${deleteTarget.invoiceNumber} (${deleteTarget.supplierName})` : ''}
+        itemType="B2B invoice"
+        message="Are you sure you want to permanently delete this inward B2B invoice from the monthly register?"
+        confirmText="Delete Invoice"
+      />
     </div>
   );
 };

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { Shipment } from '../../../../shared/types/index.ts';
+import type { IncentiveStatus, Shipment } from '../../../../shared/types/index.ts';
 
 interface ShipmentIncentivesTabProps {
   shipment: Shipment;
@@ -16,8 +16,8 @@ interface ShipmentIncentivesTabProps {
   setIncType: (v: 'DRAWBACK' | 'RODTEP' | 'ROSCTL') => void;
   incClaimed: number;
   setIncClaimed: (v: number) => void;
-  incStatus: string;
-  setIncStatus: (v: string) => void;
+  incStatus: IncentiveStatus;
+  setIncStatus: (v: IncentiveStatus) => void;
   incReceived: number;
   setIncReceived: (v: number) => void;
   incReceivedDate: string;
@@ -113,13 +113,12 @@ export const ShipmentIncentivesTab: React.FC<ShipmentIncentivesTabProps> = ({
               <label className="font-semibold text-slate-700 block mb-1">Status</label>
               <select
                 value={incStatus}
-                onChange={(e) => setIncStatus(e.target.value)}
+                onChange={(e) => setIncStatus(e.target.value as IncentiveStatus)}
                 className="w-full border border-slate-300 rounded-lg p-2 bg-white"
               >
-                <option value="CLAIMED">CLAIMED</option>
+                <option value="PENDING">PENDING</option>
                 <option value="PART_RECEIVED">PART_RECEIVED</option>
                 <option value="RECEIVED">RECEIVED</option>
-                <option value="REJECTED">REJECTED</option>
               </select>
             </div>
             <div>
@@ -190,13 +189,12 @@ export const ShipmentIncentivesTab: React.FC<ShipmentIncentivesTabProps> = ({
               <label className="font-semibold text-slate-700 block mb-1">Claim Status</label>
               <select
                 value={incStatus}
-                onChange={(e) => setIncStatus(e.target.value)}
+                onChange={(e) => setIncStatus(e.target.value as IncentiveStatus)}
                 className="w-full border border-slate-300 rounded-lg p-2 bg-white font-semibold"
               >
-                <option value="CLAIMED">CLAIMED</option>
+                <option value="PENDING">PENDING</option>
                 <option value="PART_RECEIVED">PART_RECEIVED</option>
                 <option value="RECEIVED">RECEIVED</option>
-                <option value="REJECTED">REJECTED</option>
               </select>
             </div>
             <div>

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client.ts';
 import type { B2bInvoice, B2bMonthlySummary, Supplier, Role } from '../../types/index.ts';
+import { getCurrentIndianFinancialYearLabel, getFiscalYearOptions } from '../../shared/utils/normalizer.ts';
 
 interface B2bReportsViewProps {
   userRole: Role;
@@ -25,7 +26,8 @@ interface B2bReportsViewProps {
 
 export const B2bReportsView: React.FC<B2bReportsViewProps> = () => {
   const [activeReport, setActiveReport] = useState<string>('monthly_summary');
-  const [financialYear, setFinancialYear] = useState('2026-27');
+  const [financialYear, setFinancialYear] = useState(() => getCurrentIndianFinancialYearLabel());
+  const fyOptions = getFiscalYearOptions();
   const [loading, setLoading] = useState(false);
 
   const [monthlySummaries, setMonthlySummaries] = useState<B2bMonthlySummary[]>([]);
@@ -136,8 +138,11 @@ export const B2bReportsView: React.FC<B2bReportsViewProps> = () => {
               onChange={(e) => setFinancialYear(e.target.value)}
               className="bg-white text-xs font-semibold text-slate-800 rounded-md px-2 py-1 border-0 shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden cursor-pointer"
             >
-              <option value="2026-27">FY 2026-27</option>
-              <option value="2025-26">FY 2025-26</option>
+              {fyOptions.map((fy) => (
+                <option key={fy} value={fy}>
+                  FY {fy}
+                </option>
+              ))}
               <option value="ALL">All Fiscal Years</option>
             </select>
           </div>
@@ -298,7 +303,7 @@ export const B2bReportsView: React.FC<B2bReportsViewProps> = () => {
                   <tr key={sup.gstin} className="hover:bg-slate-50">
                     <td className="px-3 py-3 font-mono font-bold text-blue-800">{sup.gstin}</td>
                     <td className="px-3 py-3 font-semibold text-slate-900">{sup.legalName}</td>
-                    <td className="px-3 py-3 text-slate-600">{sup.state || 'Tamil Nadu'}</td>
+                    <td className="px-3 py-3 text-slate-600">{sup.state || '—'}</td>
                     <td className="px-3 py-3 text-center font-bold text-slate-800">{sup.invoiceCount || 0}</td>
                     <td className="px-3 py-3 text-right font-mono text-slate-800">{formatInr(sup.totalTaxableValue)}</td>
                     <td className="px-3 py-3 text-right font-mono font-bold text-emerald-700">{formatInr(sup.totalGst)}</td>
@@ -459,7 +464,7 @@ export const B2bReportsView: React.FC<B2bReportsViewProps> = () => {
               <tbody className="divide-y divide-slate-100">
                 {Array.from(
                   allInvoices.reduce((acc, inv) => {
-                    const pos = inv.placeOfSupply || '33-Tamil Nadu';
+                    const pos = inv.placeOfSupply || '—';
                     const cur = acc.get(pos) || {
                       pos,
                       invoices: 0,
@@ -509,7 +514,10 @@ export const B2bReportsView: React.FC<B2bReportsViewProps> = () => {
               <tbody className="divide-y divide-slate-100">
                 {Array.from(
                   allInvoices.reduce((acc, inv) => {
-                    const rate = inv.applicableTaxRate ? `${inv.applicableTaxRate}%` : 'Standard 100%';
+                    const rate =
+                      inv.applicableTaxRate !== undefined && inv.applicableTaxRate !== null
+                        ? `${inv.applicableTaxRate}%`
+                        : 'Unspecified';
                     const cur = acc.get(rate) || { rate, invoices: 0, taxable: 0, totalGst: 0 };
                     cur.invoices += 1;
                     cur.taxable += inv.taxableValue || 0;

@@ -42,7 +42,7 @@ export const ocrController = {
       }
 
       const category = (req.body.category || 'COMMERCIAL_INVOICE') as DocumentCategory;
-      const financialYearId = req.body.financialYearId || 'fy-2026-27';
+      const financialYearId = req.body.financialYearId ? String(req.body.financialYearId) : undefined;
 
       const job = await ocrService.enqueueJob({
         originalFilename: req.file.originalname,

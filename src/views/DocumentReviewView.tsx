@@ -21,17 +21,24 @@ import {
   ShieldCheck,
   Layers,
 } from 'lucide-react';
-import { DocumentRecord, Role, ReviewStatus, OcrJob, DocumentCategory } from '../types/index.ts';
+import { DocumentRecord, Role, ReviewStatus, OcrJob, DocumentCategory, FinancialYear, BankMaster, Payment } from '../types/index.ts';
 import { api } from '../api/client.ts';
+import { ConfirmationModal } from '../components/ConfirmationModal.tsx';
 
 interface DocumentReviewViewProps {
   userRole: Role;
+  selectedFyId?: string;
+  financialYears?: FinancialYear[];
+  banks?: BankMaster[];
   onSelectShipment: (id: string) => void;
   refreshKey?: number;
 }
 
 export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
   userRole,
+  selectedFyId,
+  financialYears = [],
+  banks = [],
   onSelectShipment,
   refreshKey,
 }) => {
@@ -39,9 +46,13 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
 
   // Vault state
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [fyList, setFyList] = useState<FinancialYear[]>(financialYears);
+  const [bankList, setBankList] = useState<BankMaster[]>(banks);
   const [loading, setLoading] = useState(true);
   const [selectedDoc, setSelectedDoc] = useState<DocumentRecord | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmDoc, setDeleteConfirmDoc] = useState<DocumentRecord | null>(null);
 
   // OCR Queue state
   const [ocrJobs, setOcrJobs] = useState<OcrJob[]>([]);
@@ -121,8 +132,23 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
   };
 
   useEffect(() => {
+    setFyList(financialYears);
+  }, [financialYears]);
+
+  useEffect(() => {
+    setBankList(banks);
+  }, [banks]);
+
+  useEffect(() => {
     loadDocs();
     loadOcrJobs();
+    api.getPayments().then(setPayments).catch(() => {});
+    if (financialYears.length === 0) {
+      api.getFinancialYears().then(setFyList).catch(() => {});
+    }
+    if (banks.length === 0) {
+      api.getBanks().then(setBankList).catch(() => {});
+    }
   }, [refreshKey]);
 
   // Polling for live status updates on OCR queue
@@ -147,17 +173,17 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
     }
   };
 
-  const handleDeleteDocument = async (id: string, filename: string) => {
-    const ok = window.confirm(`Are you sure you want to permanently delete document "${filename}"?`);
-    if (!ok) return;
-
-    setDeletingId(id);
+  const handleConfirmDeleteDocument = async () => {
+    if (!deleteConfirmDoc) return;
+    setDeletingId(deleteConfirmDoc.id);
     setActionError(null);
     try {
-      await api.deleteDocument(id);
+      await api.deleteDocument(deleteConfirmDoc.id);
+      setDeleteConfirmDoc(null);
       await loadDocs();
     } catch (err: any) {
       setActionError(err.message || 'Failed to delete document');
+      throw err;
     } finally {
       setDeletingId(null);
     }
@@ -174,7 +200,14 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
       const fd = new FormData();
       fd.append('file', file);
       fd.append('category', queueCategory);
-      fd.append('financialYearId', 'fy-2026-27');
+      const effectiveFyId =
+        (selectedFyId && selectedFyId !== 'ALL' ? selectedFyId : '') ||
+        fyList.find((f) => f.isCurrent)?.id ||
+        fyList[0]?.id ||
+        '';
+      if (effectiveFyId) {
+        fd.append('financialYearId', effectiveFyId);
+      }
 
       const res = await api.queueOcrJob(fd);
       await loadOcrJobs();
@@ -599,7 +632,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                             value={reviewedDraft.sbExchangeRate ?? ''}
                             onChange={(e) => setReviewedDraft({ ...reviewedDraft, sbExchangeRate: parseFloat(e.target.value) || 0 })}
                             className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 focus:ring-1 focus:ring-blue-500"
-                            placeholder="92.1"
+                            placeholder="e.g. 85.50"
                           />
                         </div>
 
@@ -632,14 +665,111 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
 
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                            FIRC / IRM Number
+                            Link Existing FIRC Payment (Optional if creating below)
+                          </label>
+                          <select
+                            value={reviewedDraft.initialFircPaymentId || ''}
+                            onChange={(e) =>
+                              setReviewedDraft({
+                                ...reviewedDraft,
+                                initialFircPaymentId: e.target.value || undefined,
+                              })
+                            }
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">-- Create / Match by IRM Number Below --</option>
+                            {payments.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.irmNumber} — Avail: ${(p.availableBalanceUsd ?? p.verifiedAmount).toLocaleString()} ({p.bankName || 'Bank'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            FIRC / IRM Number *
                           </label>
                           <input
                             type="text"
                             value={reviewedDraft.irmNumber || reviewedDraft.fircIrmNumber || ''}
-                            onChange={(e) => setReviewedDraft({ ...reviewedDraft, irmNumber: e.target.value, fircIrmNumber: e.target.value })}
+                            onChange={(e) =>
+                              setReviewedDraft({
+                                ...reviewedDraft,
+                                irmNumber: e.target.value,
+                                fircIrmNumber: e.target.value,
+                              })
+                            }
                             className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono text-slate-900 focus:ring-1 focus:ring-blue-500"
                             placeholder="Inward Remittance No"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            FIRC Verified Amount (USD)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={reviewedDraft.fircAmountUsd ?? reviewedDraft.verifiedAmount ?? ''}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value);
+                              setReviewedDraft({
+                                ...reviewedDraft,
+                                fircAmountUsd: Number.isFinite(v) ? v : undefined,
+                                verifiedAmount: Number.isFinite(v) ? v : undefined,
+                              });
+                            }}
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 focus:ring-1 focus:ring-blue-500"
+                            placeholder="e.g. 25000.00"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            FIRC Authorised Dealer Bank
+                          </label>
+                          <select
+                            value={reviewedDraft.fircBankId || reviewedDraft.bankId || ''}
+                            onChange={(e) =>
+                              setReviewedDraft({
+                                ...reviewedDraft,
+                                fircBankId: e.target.value || undefined,
+                                bankId: e.target.value || undefined,
+                              })
+                            }
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">-- Select AD Bank --</option>
+                            {bankList.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name} ({b.adCode})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            FIRC Realised FX Rate (Optional)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.0001"
+                            min="0"
+                            value={reviewedDraft.fircExchangeRate ?? reviewedDraft.exchangeRate ?? ''}
+                            onChange={(e) => {
+                              const r = parseFloat(e.target.value);
+                              setReviewedDraft({
+                                ...reviewedDraft,
+                                fircExchangeRate: Number.isFinite(r) ? r : undefined,
+                                exchangeRate: Number.isFinite(r) ? r : undefined,
+                              });
+                            }}
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-slate-900 focus:ring-1 focus:ring-blue-500"
+                            placeholder="e.g. 85.40"
                           />
                         </div>
                       </div>
@@ -782,7 +912,8 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
 
                     {!isViewer && (
                       <button
-                        onClick={() => handleDeleteDocument(selectedDoc.id, selectedDoc.originalFilename)}
+                        type="button"
+                        onClick={() => setDeleteConfirmDoc(selectedDoc)}
                         disabled={deletingId === selectedDoc.id}
                         className="h-8 px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                         title="Permanently delete document"
@@ -887,6 +1018,17 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={Boolean(deleteConfirmDoc)}
+        title="Delete Export Document"
+        itemName={deleteConfirmDoc?.originalFilename || ''}
+        itemType="Uploaded Document"
+        message={`Are you sure you want to permanently delete "${deleteConfirmDoc?.originalFilename || ''}"? Realised BRC documents cannot be deleted if they would violate BRC count requirements.`}
+        isLoading={Boolean(deleteConfirmDoc && deletingId === deleteConfirmDoc.id)}
+        onConfirm={handleConfirmDeleteDocument}
+        onCancel={() => setDeleteConfirmDoc(null)}
+      />
     </div>
   );
 };

@@ -27,8 +27,8 @@ interface CommercialDetailsSectionProps {
   setShippingBillNumber: (v: string) => void;
   shippingBillDate: string;
   setShippingBillDate: (v: string) => void;
-  sbExchangeRate: number;
-  setSbExchangeRate: (v: number) => void;
+  sbExchangeRate: number | '';
+  setSbExchangeRate: (v: number | '') => void;
   fobValueInr: number | '';
   setFobValueInr: (v: number | '') => void;
   blNumber: string;
@@ -269,8 +269,9 @@ export const CommercialDetailsSection: React.FC<CommercialDetailsSectionProps> =
               <input
                 type="number"
                 step="0.01"
+                placeholder="e.g. 85.50"
                 value={sbExchangeRate}
-                onChange={(e) => setSbExchangeRate(parseFloat(e.target.value) || 92.1)}
+                onChange={(e) => setSbExchangeRate(e.target.value ? parseFloat(e.target.value) : '')}
                 className="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold"
               />
             </div>

@@ -58,10 +58,9 @@ export class OcrQueueWorker {
   }
 
   public async tick(): Promise<void> {
-    if (!isDatabaseConfigured()) return;
     if (this.isProcessing) return;
 
-    if (!(await isDatabaseReachable(300))) {
+    if (isDatabaseConfigured() && !(await isDatabaseReachable(300))) {
       if (!this.dbUnavailableLogged) {
         this.dbUnavailableLogged = true;
         console.warn(`[OCR Worker ${this.workerId}] PostgreSQL unreachable — pausing OCR polling until database connects.`);

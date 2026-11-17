@@ -87,7 +87,7 @@ export const ocrRepository = {
         originalFilename: data.originalFilename,
         fileSizeBytes: BigInt(data.fileSizeBytes || 0),
         category: data.category,
-        financialYearId: data.financialYearId || 'fy-2026-27',
+        financialYearId: data.financialYearId,
         status: 'PENDING',
         attempts: 0,
         maxAttempts: data.maxAttempts ?? 3,

@@ -14,6 +14,7 @@ import type {
   Shipment,
 } from '../../../src/types/index.ts';
 import { withTransaction } from '../../config/prisma.ts';
+import { dAdd, dDiv, dMul, dSub, round2 } from '../../shared/utils/decimal.ts';
 import { normalizeInvoiceKey } from '../../shared/utils/normalizer.ts';
 import { brcService } from '../brc/brc.service.ts';
 import { mastersService } from '../masters/masters.service.ts';
@@ -40,6 +41,32 @@ export interface ImportValidationReport {
   importedShipmentIds: string[];
 }
 
+function aggregateShipmentAllocations(s: Shipment, payments: Payment[]) {
+  const allocations = s.allocations || [];
+  const paymentById = new Map(payments.map((p) => [p.id, p]));
+  const irms = new Set<string>();
+  const creditDates = new Set<string>();
+  const bankNames = new Set<string>();
+
+  for (const alloc of allocations) {
+    const payment = paymentById.get(alloc.paymentId);
+    const irm = alloc.paymentIrm || payment?.irmNumber;
+    if (irm) irms.add(irm);
+
+    const creditDate = alloc.paymentCreditDate || payment?.creditDate || alloc.allocatedAt?.split('T')[0];
+    if (creditDate) creditDates.add(creditDate);
+
+    const bankName = alloc.paymentBankName || payment?.bankName;
+    if (bankName) bankNames.add(bankName);
+  }
+
+  return {
+    irms: Array.from(irms).join(', '),
+    creditDates: Array.from(creditDates).join(', '),
+    bankNames: Array.from(bankNames).join(', '),
+  };
+}
+
 export function buildExportWorkbookBuffer(input: {
   shipments: Shipment[];
   consignees: ConsigneeMaster[];
@@ -49,22 +76,26 @@ export function buildExportWorkbookBuffer(input: {
 }): Buffer {
   const { shipments, consignees, banks, payments, metrics } = input;
   const wb = XLSX.utils.book_new();
+  const paymentById = new Map(payments.map((p) => [p.id, p]));
 
   // 1. Export Tracker Sheet (Exact 31 Columns A through AE matching workbook specification)
   const trackerData = shipments.map((s, idx) => {
     const dbk = s.incentives?.find((i) => i.type === 'DRAWBACK');
     const rodtep = s.incentives?.find((i) => i.type === 'RODTEP');
     const rosctl = s.incentives?.find((i) => i.type === 'ROSCTL');
-    const alloc = s.allocations?.[0];
-    const payment = alloc ? payments.find((p) => p.id === alloc.paymentId) : undefined;
     const brc = s.brcRecord;
+    const agg = aggregateShipmentAllocations(s, payments);
 
-    const usdReceived = Number(s.totalPaidUsd || 0);
-    const inrReceived = Number(s.realisedInr || 0);
-    const fobInr = Number(s.fobValueInr || 0);
-    const diffUsd = Number(s.invoiceValueUsd || 0) - usdReceived;
-    const forexVarianceInr = inrReceived > 0 ? inrReceived - fobInr : 0;
+    const usdReceived = round2(s.totalPaidUsd || 0);
+    const inrReceived = round2(s.realisedInr || 0);
+    const fobInr = round2(s.fobValueInr || 0);
+    const diffUsd = round2(dSub(s.invoiceValueUsd || 0, usdReceived));
+    const forexVarianceInr = inrReceived > 0 ? round2(dSub(inrReceived, fobInr)) : 0;
     const gainLossTag = inrReceived === 0 ? 'NIL' : forexVarianceInr > 0 ? 'GAIN' : forexVarianceInr < 0 ? 'LOSS' : 'NIL';
+    const avgRealisedRate =
+      usdReceived > 0 && inrReceived > 0
+        ? round2(dDiv(inrReceived, usdReceived))
+        : round2(s.averageRealisedRate || 0);
 
     return {
       'S.No': idx + 1,
@@ -75,22 +106,22 @@ export function buildExportWorkbookBuffer(input: {
       'Port Code': s.portCode,
       'Consignee Name': s.consigneeName,
       'No. of Pkgs': s.packageCount || 0,
-      'Invoice Value (USD)': s.invoiceValueUsd,
-      'FOB Value (INR)': s.fobValueInr,
-      'Exchange Rate': s.sbExchangeRate,
-      'Drawback Amt (INR)': dbk?.claimedAmount || 0,
+      'Invoice Value (USD)': round2(s.invoiceValueUsd),
+      'FOB Value (INR)': fobInr,
+      'Exchange Rate': round2(s.sbExchangeRate),
+      'Drawback Amt (INR)': round2(dbk?.claimedAmount || 0),
       'Drawback Recd': dbk?.status || 'PENDING',
       'Drawback Received Date': dbk?.receivedDate || '',
-      'RoDTEP Amt (INR)': rodtep?.claimedAmount || 0,
+      'RoDTEP Amt (INR)': round2(rodtep?.claimedAmount || 0),
       'RoDTEP Recd': rodtep?.status || 'PENDING',
-      'RoSCTL Amt (INR)': rosctl?.claimedAmount || 0,
+      'RoSCTL Amt (INR)': round2(rosctl?.claimedAmount || 0),
       'RoSCTL Recd': rosctl?.status || 'PENDING',
-      'Payment Received Date': payment?.creditDate || alloc?.allocatedAt?.split('T')[0] || '',
+      'Payment Received Date': agg.creditDates,
       'Amount Received (USD)': usdReceived,
       'Amount Received (INR)': inrReceived,
-      'Exchange Rate Received': payment?.exchangeRate || s.averageRealisedRate || 0,
-      'Bank': payment?.bankName || '',
-      'Bank Inward Remittance No. (IRM)': payment?.irmNumber || alloc?.paymentIrm || '',
+      'Exchange Rate Received': avgRealisedRate,
+      'Bank': agg.bankNames,
+      'Bank Inward Remittance No. (IRM)': agg.irms,
       'BRC Number': brc?.brcNumber || '',
       'BRC Date': brc?.issueDate || '',
       'Difference (USD)': diffUsd,
@@ -112,27 +143,31 @@ export function buildExportWorkbookBuffer(input: {
         s.consigneeName?.toLowerCase().includes(targetConsigneePattern.toLowerCase())
     );
 
-    return targetShipments.map((s, idx) => ({
-      'S.No': idx + 1,
-      'Invoice No': s.invoiceNumber,
-      'Invoice Date': s.invoiceDate,
-      'Shipping Bill No': s.shippingBillNumber,
-      'Shipping Bill Date': s.shippingBillDate,
-      'Port Code': s.portCode,
-      'No. of Pkgs': s.packageCount || 0,
-      'Invoice Value (USD)': s.invoiceValueUsd,
-      'FOB Value (INR)': s.fobValueInr,
-      'FIRC / IRM No.': s.allocations?.[0]?.paymentIrm || '',
-      'Payment Received Date': s.allocations?.[0]?.allocatedAt?.split('T')[0] || '',
-      'Amount Received (USD)': s.totalPaidUsd || 0,
-      'Difference (USD)': s.balanceDueUsd || 0,
-      'Exchange Rate Received': s.averageRealisedRate || 0,
-      'Amount Received (INR)': s.realisedInr || 0,
-      'BRC Number': s.brcRecord?.brcNumber || '',
-      'BRC Status': s.brcRecord?.status || 'PENDING',
-      'Payment Status': s.paymentStatus,
-      'Remarks': s.remarks || '',
-    }));
+    return targetShipments.map((s, idx) => {
+      const agg = aggregateShipmentAllocations(s, payments);
+      return {
+        'S.No': idx + 1,
+        'Invoice No': s.invoiceNumber,
+        'Invoice Date': s.invoiceDate,
+        'Shipping Bill No': s.shippingBillNumber,
+        'Shipping Bill Date': s.shippingBillDate,
+        'Port Code': s.portCode,
+        'No. of Pkgs': s.packageCount || 0,
+        'Invoice Value (USD)': round2(s.invoiceValueUsd),
+        'FOB Value (INR)': round2(s.fobValueInr),
+        'FIRC / IRM No.': agg.irms,
+        'Bank': agg.bankNames,
+        'Payment Received Date': agg.creditDates,
+        'Amount Received (USD)': round2(s.totalPaidUsd || 0),
+        'Difference (USD)': round2(s.balanceDueUsd || 0),
+        'Exchange Rate Received': round2(s.averageRealisedRate || 0),
+        'Amount Received (INR)': round2(s.realisedInr || 0),
+        'BRC Number': s.brcRecord?.brcNumber || '',
+        'BRC Status': s.brcRecord?.status || 'PENDING',
+        'Payment Status': s.paymentStatus,
+        'Remarks': s.remarks || '',
+      };
+    });
   };
 
   // 2. Quick View Sheet
@@ -158,13 +193,13 @@ export function buildExportWorkbookBuffer(input: {
     const cShipments = shipments.filter(
       (s) => s.consigneeId === c.id || s.consigneeName?.toLowerCase() === c.name.toLowerCase()
     );
-    const totalInvoicedUsd = cShipments.reduce((sum, s) => sum + s.invoiceValueUsd, 0);
-    const totalFobInr = cShipments.reduce((sum, s) => sum + s.fobValueInr, 0);
-    const totalPaidUsd = cShipments.reduce((sum, s) => sum + (s.totalPaidUsd || 0), 0);
-    const totalRealisedInr = cShipments.reduce((sum, s) => sum + (s.realisedInr || 0), 0);
+    const totalInvoicedUsd = round2(cShipments.reduce((sum, s) => dAdd(sum, s.invoiceValueUsd), 0));
+    const totalFobInr = round2(cShipments.reduce((sum, s) => dAdd(sum, s.fobValueInr), 0));
+    const totalPaidUsd = round2(cShipments.reduce((sum, s) => dAdd(sum, s.totalPaidUsd || 0), 0));
+    const totalRealisedInr = round2(cShipments.reduce((sum, s) => dAdd(sum, s.realisedInr || 0), 0));
     const totalPkgs = cShipments.reduce((sum, s) => sum + (s.packageCount || 0), 0);
-    const avgRate = totalInvoicedUsd > 0 ? totalFobInr / totalInvoicedUsd : 0;
-    const outstandingUsd = Math.max(0, totalInvoicedUsd - totalPaidUsd);
+    const avgRate = totalInvoicedUsd > 0 ? round2(dDiv(totalFobInr, totalInvoicedUsd)) : 0;
+    const outstandingUsd = Math.max(0, round2(dSub(totalInvoicedUsd, totalPaidUsd)));
 
     let dbkClaimed = 0;
     let dbkRecd = 0;
@@ -176,23 +211,23 @@ export function buildExportWorkbookBuffer(input: {
     for (const s of cShipments) {
       for (const inc of s.incentives || []) {
         if (inc.type === 'DRAWBACK') {
-          dbkClaimed += inc.claimedAmount;
-          dbkRecd += inc.receivedAmount;
+          dbkClaimed = dAdd(dbkClaimed, inc.claimedAmount);
+          dbkRecd = dAdd(dbkRecd, inc.receivedAmount);
         } else if (inc.type === 'RODTEP') {
-          rodtepClaimed += inc.claimedAmount;
-          rodtepRecd += inc.receivedAmount;
+          rodtepClaimed = dAdd(rodtepClaimed, inc.claimedAmount);
+          rodtepRecd = dAdd(rodtepRecd, inc.receivedAmount);
         } else if (inc.type === 'ROSCTL') {
-          rosctlClaimed += inc.claimedAmount;
-          rosctlRecd += inc.receivedAmount;
+          rosctlClaimed = dAdd(rosctlClaimed, inc.claimedAmount);
+          rosctlRecd = dAdd(rosctlRecd, inc.receivedAmount);
         }
       }
     }
 
-    const dbkPending = Math.max(0, dbkClaimed - dbkRecd);
-    const rodtepPending = Math.max(0, rodtepClaimed - rodtepRecd);
-    const rosctlPending = Math.max(0, rosctlClaimed - rosctlRecd);
-    const totalIncentivesPending = dbkPending + rodtepPending + rosctlPending;
-    const netForexInr = totalRealisedInr > 0 ? totalRealisedInr - totalFobInr : 0;
+    const dbkPending = Math.max(0, round2(dSub(dbkClaimed, dbkRecd)));
+    const rodtepPending = Math.max(0, round2(dSub(rodtepClaimed, rodtepRecd)));
+    const rosctlPending = Math.max(0, round2(dSub(rosctlClaimed, rosctlRecd)));
+    const totalIncentivesPending = round2(dAdd(dAdd(dbkPending, rodtepPending), rosctlPending));
+    const netForexInr = totalRealisedInr > 0 ? round2(dSub(totalRealisedInr, totalFobInr)) : 0;
 
     return {
       Consignee: c.name,
@@ -200,14 +235,14 @@ export function buildExportWorkbookBuffer(input: {
       'No. of Pkgs': totalPkgs,
       'Invoice Value USD': totalInvoicedUsd,
       'FOB Value INR': totalFobInr,
-      'Avg Exchange Rate': avgRate > 0 ? Math.round(avgRate * 100) / 100 : 0,
+      'Avg Exchange Rate': avgRate,
       'Received USD': totalPaidUsd,
       'Outstanding USD': outstandingUsd,
-      'Drawback Claimed INR': dbkClaimed,
+      'Drawback Claimed INR': round2(dbkClaimed),
       'Drawback Pending INR': dbkPending,
-      'RoDTEP Claimed INR': rodtepClaimed,
+      'RoDTEP Claimed INR': round2(rodtepClaimed),
       'RoDTEP Pending INR': rodtepPending,
-      'RoSCTL Claimed INR': rosctlClaimed,
+      'RoSCTL Claimed INR': round2(rosctlClaimed),
       'RoSCTL Pending INR': rosctlPending,
       'Total Incentive Pending INR': totalIncentivesPending,
       'Net Forex Gain/Loss INR': netForexInr,
@@ -265,11 +300,11 @@ export function buildExportWorkbookBuffer(input: {
       payments.map((p) => ({
         'IRM Number': p.irmNumber,
         'Sender Reference': p.senderReference || '',
-        'Remittance USD': p.verifiedAmount,
-        'Allocated USD': p.totalAllocatedUsd || 0,
-        'Available Balance USD': p.availableBalanceUsd || 0,
-        'Exchange Rate': p.exchangeRate || 0,
-        'INR Amount': p.inrAmount || 0,
+        'Remittance USD': round2(p.verifiedAmount),
+        'Allocated USD': round2(p.totalAllocatedUsd || 0),
+        'Available Balance USD': round2(p.availableBalanceUsd || 0),
+        'Exchange Rate': round2(p.exchangeRate || 0),
+        'INR Amount': round2(p.inrAmount || 0),
         'Credit Date': p.creditDate,
         'Value Date': p.valueDate,
         Bank: p.bankName || '',
@@ -278,6 +313,29 @@ export function buildExportWorkbookBuffer(input: {
     ),
     'Inward Remittances'
   );
+
+  // 8. Allocation Tranches (every individual payment allocation across all shipments)
+  const trancheRows: Array<Record<string, any>> = [];
+  for (const s of shipments) {
+    for (const alloc of s.allocations || []) {
+      const payment = paymentById.get(alloc.paymentId);
+      const fxRate = alloc.paymentExchangeRate ?? payment?.exchangeRate ?? 0;
+      const inrAllocated = fxRate > 0 ? round2(dMul(alloc.allocatedAmountUsd, fxRate)) : 0;
+      trancheRows.push({
+        'Invoice No': s.invoiceNumber,
+        'Consignee Name': s.consigneeName,
+        'IRM Number': alloc.paymentIrm || payment?.irmNumber || '',
+        'Bank': alloc.paymentBankName || payment?.bankName || '',
+        'Credit Date': alloc.paymentCreditDate || payment?.creditDate || alloc.allocatedAt?.split('T')[0] || '',
+        'Allocated USD': round2(alloc.allocatedAmountUsd),
+        'Exchange Rate': round2(fxRate),
+        'Allocated INR': inrAllocated,
+        'Allocated At': alloc.allocatedAt?.split('T')[0] || '',
+        'Notes': alloc.notes || '',
+      });
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trancheRows), 'Allocation Tranches');
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
@@ -290,18 +348,30 @@ export function extractCsvSheetFromWorkbook(wbBuffer: Buffer, sheetName: string)
 }
 
 function parseExcelDate(val: any): string | null {
-  if (!val) return null;
+  if (val === undefined || val === null || val === '') return null;
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    return val.toISOString().split('T')[0];
+  }
   if (typeof val === 'number') {
-    const date = new Date((val - (25567 + 2)) * 86400 * 1000);
-    return date.toISOString().split('T')[0];
+    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+    if (!Number.isNaN(date.getTime())) return date.toISOString().split('T')[0];
+    return null;
   }
   const str = String(val).trim();
+  if (!str) return null;
   const parts = str.replace(/[\/\.]/g, '-').split('-');
   if (parts.length === 3) {
-    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-    if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    if (parts[0].length === 4) {
+      const iso = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      return Number.isNaN(new Date(`${iso}T00:00:00Z`).getTime()) ? null : iso;
+    }
+    if (parts[2].length === 4) {
+      const iso = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      return Number.isNaN(new Date(`${iso}T00:00:00Z`).getTime()) ? null : iso;
+    }
   }
-  return str;
+  const parsed = new Date(str);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
 }
 
 export async function parseHistoricalExcelMigration(
@@ -310,7 +380,13 @@ export async function parseHistoricalExcelMigration(
   actorUserId: string
 ): Promise<ImportValidationReport> {
   const wb = XLSX.read(fileBuffer, { type: 'buffer' });
-  const rawText = fileBuffer.toString('utf-8');
+  const firstSheet = wb.Sheets[wb.SheetNames[0]];
+  const headerMatrix: any[][] = firstSheet ? XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' }) : [];
+  const headerSampleText = headerMatrix
+    .slice(0, 5)
+    .flat()
+    .map((v) => String(v || '').trim())
+    .join(' | ');
 
   const report: ImportValidationReport = {
     totalRowsRead: 0,
@@ -322,26 +398,30 @@ export async function parseHistoricalExcelMigration(
     importedShipmentIds: [],
   };
 
-  if (rawText.includes('BANK MASTER') || rawText.includes('Bank (receiving export proceeds)')) {
+  if (
+    wb.SheetNames.some((s) => s.toLowerCase().includes('bank master')) ||
+    headerSampleText.includes('BANK MASTER') ||
+    headerSampleText.includes('Bank (receiving export proceeds)')
+  ) {
     report.importType = 'BANK_MASTER';
-    const lines = rawText
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+    const bankSheetName =
+      wb.SheetNames.find((s) => s.toLowerCase().includes('bank master')) || wb.SheetNames[0];
+    const bankSheet = wb.Sheets[bankSheetName];
+    const rows: any[] = XLSX.utils.sheet_to_json(bankSheet, { defval: '' });
     const existingBanks = await mastersService.listBanks();
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.includes('BANK MASTER') || line.includes('Bank (receiving export proceeds)')) continue;
-      const parts = line.split(',').map((p) => p.trim());
-      const bankName = parts[0];
-      if (!bankName) continue;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const bankName = String(
+        row['Bank (receiving export proceeds)'] || row['Bank Name'] || row['Name'] || Object.values(row)[0] || ''
+      ).trim();
+      if (!bankName || bankName.toUpperCase() === 'BANK MASTER') continue;
 
       report.totalRowsRead++;
       const exists = existingBanks.some((b) => b.name.toLowerCase() === bankName.toLowerCase());
       if (exists) {
         report.warnings.push({
-          rowNumber: i + 1,
+          rowNumber: i + 2,
           invoiceNo: bankName,
           message: `Bank '${bankName}' already exists in Bank Master (preserved).`,
         });
@@ -350,28 +430,24 @@ export async function parseHistoricalExcelMigration(
         try {
           const created = await mastersService.createBank({
             name: bankName,
-            branch: 'Chennai Branch',
-            adCode: '6690005',
-            ifscCode: bankName.toLowerCase().includes('dbs')
-              ? 'DBSS0IN0811'
-              : bankName.toLowerCase().includes('hdfc')
-                ? 'HDFC0000166'
-                : 'BANK0001234',
-            swiftCode: '',
-            accountNumber: '',
+            branch: String(row['Branch'] || '').trim(),
+            adCode: String(row['AD Code'] || '').trim(),
+            ifscCode: String(row['IFSC Code'] || '').trim(),
+            swiftCode: String(row['SWIFT Code'] || '').trim(),
+            accountNumber: String(row['Account Number'] || '').trim(),
             isActive: true,
           });
           existingBanks.push(created);
           report.acceptedRows++;
           report.warnings.push({
-            rowNumber: i + 1,
+            rowNumber: i + 2,
             invoiceNo: bankName,
             message: `Created new Bank Master entry for '${bankName}'.`,
           });
         } catch (e: any) {
           report.rejectedRows++;
           report.rejectionLog.push({
-            rowNumber: i + 1,
+            rowNumber: i + 2,
             invoiceNo: bankName,
             consignee: 'Bank Master',
             reason: e.message,
@@ -382,16 +458,32 @@ export async function parseHistoricalExcelMigration(
     return report;
   }
 
-  if (rawText.includes('CONSIGNEE MASTER') || (rawText.includes('Country') && rawText.includes('Port of Discharge'))) {
+  if (
+    wb.SheetNames.some((s) => s.toLowerCase().includes('consignee master')) ||
+    headerSampleText.includes('CONSIGNEE MASTER') ||
+    (headerSampleText.includes('Country') && headerSampleText.includes('Port of Discharge'))
+  ) {
     report.importType = 'CONSIGNEE_MASTER';
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const sheetName =
+      wb.SheetNames.find((s) => s.toLowerCase().includes('consignee master')) || wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
     report.totalRowsRead = rows.length;
     const existingConsignees = await mastersService.listConsignees();
 
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
       const name = String(row['Name'] || row['Consignee Name'] || row['CONSIGNEE'] || '').trim();
-      if (!name) continue;
+      if (!name) {
+        report.rejectedRows++;
+        report.rejectionLog.push({
+          rowNumber: i + 2,
+          invoiceNo: 'BLANK',
+          consignee: 'Consignee Master',
+          reason: 'Consignee Name is missing.',
+        });
+        continue;
+      }
 
       const existing = existingConsignees.find((c) => c.name.toLowerCase() === name.toLowerCase());
       if (!existing) {
@@ -399,7 +491,7 @@ export async function parseHistoricalExcelMigration(
           name,
           country: String(row['Country'] || 'International').trim(),
           portOfDischarge: String(row['Port of Discharge'] || row['Port'] || '').trim(),
-          paymentTerms: String(row['Payment Terms'] || 'FOB COLOMBO | DA 90 DAYS').trim(),
+          paymentTerms: String(row['Payment Terms'] || '').trim(),
           currency: String(row['Currency'] || 'USD').trim(),
           contactEmail: String(row['Contact Email'] || '').trim(),
           isActive: true,
@@ -419,16 +511,13 @@ export async function parseHistoricalExcelMigration(
   const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
   report.totalRowsRead = rows.length;
 
-  const banks = await mastersService.listBanks();
-  const defaultBank = banks[0];
-
   for (let idx = 0; idx < rows.length; idx++) {
     const row = rows[idx];
     const rowNum = idx + 2;
     const invoiceNo = String(row['Invoice No.'] || row['Invoice No'] || row['INVOICE NO'] || '').trim();
     const consigneeName = String(row['Consignee Name'] || row['Consignee'] || row['BUYER'] || '').trim();
     const fircIrm = String(
-      row['FIRC / IRM No.'] || row['FIRC No.'] || row['IRM Number'] || row['FIRC'] || row['IRM'] || ''
+      row['FIRC / IRM No.'] || row['FIRC No.'] || row['IRM Number'] || row['FIRC'] || row['IRM'] || row['Bank Inward Remittance No. (IRM)'] || ''
     ).trim();
 
     if (!invoiceNo) {
@@ -442,6 +531,17 @@ export async function parseHistoricalExcelMigration(
       continue;
     }
 
+    if (!consigneeName) {
+      report.rejectedRows++;
+      report.rejectionLog.push({
+        rowNumber: rowNum,
+        invoiceNo,
+        consignee: 'BLANK',
+        reason: 'Consignee Name is missing or empty.',
+      });
+      continue;
+    }
+
     if (!fircIrm) {
       report.rejectedRows++;
       report.rejectionLog.push({
@@ -449,6 +549,43 @@ export async function parseHistoricalExcelMigration(
         invoiceNo,
         consignee: consigneeName,
         reason: 'EXCLUDED UNDER RULE: No valid FIRC / IRM remittance record linked to this invoice.',
+      });
+      continue;
+    }
+
+    const invoiceUsd = parseFloat(String(row['Invoice Value (USD)'] || row['Invoice Value'] || '').replace(/,/g, ''));
+    if (!Number.isFinite(invoiceUsd) || invoiceUsd <= 0) {
+      report.rejectedRows++;
+      report.rejectionLog.push({
+        rowNumber: rowNum,
+        invoiceNo,
+        consignee: consigneeName,
+        reason: 'Invoice Value (USD) must be a positive number.',
+      });
+      continue;
+    }
+
+    const invDate = parseExcelDate(row['Invoice Date'] || row['Date']);
+    const sbDate = parseExcelDate(row['Shipping Bill Date'] || row['SB Date']) || invDate;
+    if (!invDate || !sbDate) {
+      report.rejectedRows++;
+      report.rejectionLog.push({
+        rowNumber: rowNum,
+        invoiceNo,
+        consignee: consigneeName,
+        reason: 'Valid Invoice Date and Shipping Bill Date are required.',
+      });
+      continue;
+    }
+
+    const rate = parseFloat(String(row['SB Exchange Rate'] || row['Exchange Rate'] || row['Rate'] || '').replace(/,/g, ''));
+    if (!Number.isFinite(rate) || rate <= 0) {
+      report.rejectedRows++;
+      report.rejectionLog.push({
+        rowNumber: rowNum,
+        invoiceNo,
+        consignee: consigneeName,
+        reason: 'Positive SB Exchange Rate is required.',
       });
       continue;
     }
@@ -466,37 +603,48 @@ export async function parseHistoricalExcelMigration(
       continue;
     }
 
-    const invoiceUsd =
-      parseFloat(String(row['Invoice Value (USD)'] || row['Invoice Value'] || '0').replace(/,/g, '')) || 1000;
-    const sbNo = String(row['Shipping Bill No.'] || row['SB No'] || `SB-${invoiceNo}`).trim();
-    const sbDate = parseExcelDate(row['Shipping Bill Date'] || row['SB Date']) || '2026-04-07';
-    const invDate = parseExcelDate(row['Invoice Date'] || row['Date']) || '2026-04-06';
-    const rate = parseFloat(String(row['SB Exchange Rate'] || row['Rate'] || '92.10')) || 92.1;
-    const fobInr =
-      parseFloat(String(row['FOB Value (INR)'] || row['FOB INR'] || '0').replace(/,/g, '')) || invoiceUsd * rate;
+    const sbNo = String(row['Shipping Bill No.'] || row['Shipping Bill No'] || row['SB No'] || '').trim();
+    if (!sbNo) {
+      report.rejectedRows++;
+      report.rejectionLog.push({
+        rowNumber: rowNum,
+        invoiceNo,
+        consignee: consigneeName,
+        reason: 'Shipping Bill No is missing or empty.',
+      });
+      continue;
+    }
+
+    const parsedFob = parseFloat(String(row['FOB Value (INR)'] || row['FOB INR'] || '').replace(/,/g, ''));
+    const fobInr = Number.isFinite(parsedFob) && parsedFob > 0 ? round2(parsedFob) : round2(dMul(invoiceUsd, rate));
+    const bankNameRaw = String(row['Bank'] || row['Bank Name'] || '').trim();
 
     try {
       const createdShipment = await withTransaction(async (tx) => {
         const consignee = await mastersService.resolveOrCreateConsignee(
           {
-            consigneeName: consigneeName || `Consignee ${invoiceNo}`,
+            consigneeName,
           },
           tx
         );
 
         let payment = await paymentsService.findByIrmNumber(fircIrm, tx);
         if (!payment) {
+          if (!bankNameRaw) {
+            throw new Error(`Bank name is required to create new FIRC payment '${fircIrm}'.`);
+          }
+          const resolvedBankId = await mastersService.resolveBankId(undefined, bankNameRaw, tx);
           payment = await paymentsService.createPayment(
             {
               irmNumber: fircIrm,
               senderReference: String(row['Sender Reference'] || '').trim() || undefined,
-              verifiedAmount: invoiceUsd,
+              verifiedAmount: round2(invoiceUsd),
               inrAmount: fobInr,
               exchangeRate: rate,
               valueDate: invDate,
               creditDate: invDate,
-              bankId: defaultBank?.id || (await mastersService.resolveBankId(undefined, undefined, tx)),
-              purposeCode: 'P0103',
+              bankId: resolvedBankId,
+              purposeCode: String(row['Purpose Code'] || 'P0103').trim() || 'P0103',
               remarks: `Migrated from Excel historical file for ${invoiceNo}`,
             },
             tx
@@ -510,9 +658,9 @@ export async function parseHistoricalExcelMigration(
             invoiceNumber: invoiceNo,
             invoiceDate: invDate,
             consigneeId: consignee.id,
-            portCode: String(row['Destination Port'] || row['Port'] || 'INMAA1').trim().toUpperCase(),
-            packageCount: parseInt(String(row['Package Count'] || '0'), 10) || 0,
-            invoiceValueUsd: invoiceUsd,
+            portCode: String(row['Port Code'] || row['Destination Port'] || row['Port'] || 'INMAA1').trim().toUpperCase(),
+            packageCount: parseInt(String(row['No. of Pkgs'] || row['Package Count'] || '0'), 10) || 0,
+            invoiceValueUsd: round2(invoiceUsd),
             shippingBillNumber: sbNo,
             shippingBillDate: sbDate,
             sbExchangeRate: rate,
@@ -521,12 +669,12 @@ export async function parseHistoricalExcelMigration(
             vesselName: String(row['Vessel Name'] || '').trim() || undefined,
             remarks: String(row['Remarks'] || 'Historical migration').trim(),
             initialFircPaymentId: payment.id,
-            initialFircAllocationAmount: invoiceUsd,
+            initialFircAllocationAmount: round2(invoiceUsd),
             reviewStatus: 'CONFIRMED',
             incentives: {
-              dbkClaimed: parseFloat(String(row['DBK Claimed (INR)'] || '0').replace(/,/g, '')) || 0,
-              rodtepClaimed: parseFloat(String(row['RoDTEP Claimed (INR)'] || '0').replace(/,/g, '')) || 0,
-              rosctlClaimed: parseFloat(String(row['RoSCTL Claimed (INR)'] || '0').replace(/,/g, '')) || 0,
+              dbkClaimed: parseFloat(String(row['DBK Claimed (INR)'] || row['Drawback Amt (INR)'] || '0').replace(/,/g, '')) || 0,
+              rodtepClaimed: parseFloat(String(row['RoDTEP Claimed (INR)'] || row['RoDTEP Amt (INR)'] || '0').replace(/,/g, '')) || 0,
+              rosctlClaimed: parseFloat(String(row['RoSCTL Claimed (INR)'] || row['RoSCTL Amt (INR)'] || '0').replace(/,/g, '')) || 0,
             },
             brc: {
               uploadMode: 'SINGLE',
@@ -543,11 +691,11 @@ export async function parseHistoricalExcelMigration(
             shipment.id,
             {
               brcNumber: brcNo,
-              issueDate: parseExcelDate(row['BRC Issue Date']) || undefined,
+              issueDate: parseExcelDate(row['BRC Issue Date'] || row['BRC Date']) || undefined,
               realisationDate: parseExcelDate(row['Bank Realisation Date']) || undefined,
-              realisedAmount: invoiceUsd,
+              realisedAmount: round2(invoiceUsd),
               realisedCurrency: 'USD',
-              status: 'REALISED',
+              status: 'ISSUED',
             },
             tx
           );

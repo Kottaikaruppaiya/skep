@@ -204,6 +204,9 @@ export interface PaymentAllocation {
   allocatedByUserId: string;
   allocatedByName?: string;
   paymentIrm?: string;
+  paymentBankName?: string;
+  paymentExchangeRate?: number;
+  paymentCreditDate?: string;
   shipmentInvoiceNo?: string;
 }
 

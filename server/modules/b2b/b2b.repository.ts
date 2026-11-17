@@ -11,7 +11,7 @@ import type {
 import type { B2bInvoice, ImportBatch, Supplier } from '../../../src/types/index.ts';
 import { getPrisma, type DbClient } from '../../config/prisma.ts';
 import { toDateOnlyString } from '../../shared/utils/date.ts';
-import { round2, toNumber } from '../../shared/utils/decimal.ts';
+import { dAdd, round2, toNumber } from '../../shared/utils/decimal.ts';
 
 function mapB2bInvoice(row: PrismaB2bInvoice): B2bInvoice {
   return {
@@ -75,9 +75,9 @@ function mapSupplierWithMetrics(
   let latestDate: string | undefined;
 
   for (const inv of invs) {
-    totalInvoiceValue += toNumber(inv.invoiceValue);
-    totalTaxableValue += toNumber(inv.taxableValue);
-    totalGst += toNumber(inv.totalGst);
+    totalInvoiceValue = dAdd(totalInvoiceValue, toNumber(inv.invoiceValue));
+    totalTaxableValue = dAdd(totalTaxableValue, toNumber(inv.taxableValue));
+    totalGst = dAdd(totalGst, toNumber(inv.totalGst));
     const invDateStr = toDateOnlyString(inv.invoiceDate);
     if (invDateStr && (!latestDate || invDateStr > latestDate)) {
       latestDate = invDateStr;
@@ -333,8 +333,8 @@ export const b2bRepository = {
         filingDate: data.filingDate ?? null,
         itcAvailability: data.itcAvailability,
         reason: data.reason ?? null,
-        applicableTaxRate: data.applicableTaxRate ?? 100,
-        source: data.source ?? 'GSTR-1',
+        applicableTaxRate: data.applicableTaxRate !== undefined ? data.applicableTaxRate : null,
+        source: data.source !== undefined ? data.source : null,
         irn: data.irn ?? null,
         irnDate: data.irnDate ?? null,
         importBatchId: data.importBatchId ?? null,

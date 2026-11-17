@@ -16,7 +16,7 @@ import {
   CheckCircle2,
   DollarSign
 } from 'lucide-react';
-import { Shipment, ConsigneeMaster, BankMaster } from '../types/index.ts';
+import { Shipment, ConsigneeMaster, BankMaster, Payment } from '../types/index.ts';
 import { api } from '../api/client.ts';
 
 interface SummaryReportsViewProps {
@@ -31,6 +31,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [consignees, setConsignees] = useState<ConsigneeMaster[]>([]);
   const [banks, setBanks] = useState<BankMaster[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,26 +40,19 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
       api.getShipments({ financialYearId: selectedFyId !== 'ALL' ? selectedFyId : undefined }),
       api.getConsignees(),
       api.getBanks(),
+      api.getPayments(),
     ])
-      .then(([sData, cData, bData]) => {
+      .then(([sData, cData, bData, pData]) => {
         setShipments(sData);
         setConsignees(cData);
         setBanks(bData);
+        setPayments(pData);
       })
       .catch((err) => console.error('Error fetching summary report data:', err))
       .finally(() => setLoading(false));
   }, [selectedFyId, refreshKey]);
 
-  // The 5 canonical workbook companies
-  const canonicalBuyers = [
-    'S K GLOBAL VENTURES PRIVATE LIMITED',
-    'SHASVANTH IMPEX PRIVATE LIMITED',
-    'PRECISION TEX LANKA PVT LTD',
-    'TEX FAB LANKA PRIVATE LIMITED',
-    'WINFIELD MERCHANT AND GENERAL PVT LTD',
-  ];
-
-  // 1. Cross-tabulation by Buyer (Part 9.1)
+  // 1. Cross-tabulation by Actual Buyer (Part 9.1) — strict matching, never fall back to first buyer
   const buyerCrossTab = useMemo(() => {
     const stats: Record<
       string,
@@ -72,19 +66,30 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
       }
     > = {};
 
-    // Initialize all canonical buyers
-    for (const b of canonicalBuyers) {
-      stats[b] = {
-        bills: 0,
-        billedUsd: 0,
-        realisedUsd: 0,
-        realisedInr: 0,
-        fobInr: 0,
-        netForexInr: 0,
-      };
+    const buyerColumns: string[] = [];
+    const registerBuyer = (label: string) => {
+      const normalized = label.trim().toUpperCase();
+      if (!normalized) return 'UNSPECIFIED CONSIGNEE';
+      if (!stats[normalized]) {
+        stats[normalized] = {
+          bills: 0,
+          billedUsd: 0,
+          realisedUsd: 0,
+          realisedInr: 0,
+          fobInr: 0,
+          netForexInr: 0,
+        };
+        buyerColumns.push(normalized);
+      }
+      return normalized;
+    };
+
+    const consigneeById = new Map<string, ConsigneeMaster>();
+    for (const c of consignees) {
+      consigneeById.set(c.id, c);
+      registerBuyer(c.name);
     }
 
-    // Totals
     const total = {
       bills: 0,
       billedUsd: 0,
@@ -95,17 +100,14 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
     };
 
     for (const s of shipments) {
-      // Find matching buyer
-      const sName = (s.consigneeName || '').toUpperCase();
-      let matchedBuyer = canonicalBuyers.find((b) => sName.includes(b.split(' ')[0]));
-      if (!matchedBuyer) {
-        matchedBuyer = canonicalBuyers[0]; // fallback
-      }
+      const masterBuyer = s.consigneeId ? consigneeById.get(s.consigneeId) : undefined;
+      const buyerLabel = masterBuyer?.name || s.consigneeName || 'UNSPECIFIED CONSIGNEE';
+      const matchedBuyer = registerBuyer(buyerLabel);
 
       const totalPaid = s.totalPaidUsd || 0;
       const balUsd = s.balanceDueUsd ?? Math.max(0, s.invoiceValueUsd - totalPaid);
-      const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 92.1;
-      const realisedInr = s.realisedInr || totalPaid * realisedRate;
+      const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 0;
+      const realisedInr = s.realisedInr ?? (totalPaid * realisedRate);
       const fobInr = s.fobValueInr || 0;
       const forex = balUsd === 0 && totalPaid > 0 ? realisedInr - fobInr : 0;
 
@@ -124,8 +126,8 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
       total.netForexInr += forex;
     }
 
-    return { stats, total };
-  }, [shipments]);
+    return { buyerColumns, stats, total };
+  }, [shipments, consignees]);
 
   // 2. Incentive Scheme Summary (Part 9.1)
   const incentiveSchemes = useMemo(() => {
@@ -193,46 +195,66 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
     ];
   }, [shipments]);
 
-  // 3. Bank-wise Realisation breakdown (Part 9.1)
+  // 3. Bank-wise Realisation breakdown (Part 9.1) — attributed per allocation's actual bank
   const bankBreakdown = useMemo(() => {
-    const map: Record<string, { bankName: string; bills: number; realisedUsd: number; realisedInr: number }> = {};
+    const map: Record<
+      string,
+      { bankName: string; shipmentIds: Set<string>; realisedUsd: number; realisedInr: number }
+    > = {};
 
-    // Seed with bank master names
+    const bankByName = new Map<string, BankMaster>();
     for (const b of banks) {
       map[b.id] = {
         bankName: b.name,
-        bills: 0,
+        shipmentIds: new Set(),
         realisedUsd: 0,
         realisedInr: 0,
       };
+      bankByName.set(b.name.trim().toLowerCase(), b);
     }
 
-    const defaultBankId = banks[0]?.id || 'default';
-    if (!map[defaultBankId]) {
-      map[defaultBankId] = {
-        bankName: 'DBS Bank India Limited',
-        bills: 0,
-        realisedUsd: 0,
-        realisedInr: 0,
-      };
+    const paymentById = new Map<string, Payment>();
+    for (const p of payments) {
+      paymentById.set(p.id, p);
     }
 
     for (const s of shipments) {
-      const totalPaid = s.totalPaidUsd || 0;
-      if (totalPaid > 0) {
-        const rate = s.averageRealisedRate || s.sbExchangeRate || 92.1;
-        const inr = s.realisedInr || totalPaid * rate;
+      const allocs = s.allocations || [];
+      for (const a of allocs) {
+        const payment = paymentById.get(a.paymentId);
+        let targetId = payment?.bankId;
+        if (!targetId && a.paymentBankName) {
+          targetId = bankByName.get(a.paymentBankName.trim().toLowerCase())?.id;
+        }
+        const fallbackKey = targetId || `unassigned:${a.paymentBankName || 'Unknown'}`;
+        if (!map[fallbackKey]) {
+          map[fallbackKey] = {
+            bankName: a.paymentBankName || payment?.bankName || 'Unassigned AD Bank',
+            shipmentIds: new Set(),
+            realisedUsd: 0,
+            realisedInr: 0,
+          };
+        }
 
-        // Assign to first bank or default
-        const targetId = banks[0]?.id || defaultBankId;
-        map[targetId].bills += 1;
-        map[targetId].realisedUsd += totalPaid;
-        map[targetId].realisedInr += inr;
+        const allocUsd = Number(a.allocatedAmountUsd || 0);
+        const fxRate =
+          Number(a.paymentExchangeRate || payment?.exchangeRate || 0) ||
+          (s.totalPaidUsd && s.realisedInr ? s.realisedInr / s.totalPaidUsd : s.averageRealisedRate || s.sbExchangeRate || 0);
+        const allocInr = allocUsd * fxRate;
+
+        map[fallbackKey].shipmentIds.add(s.id);
+        map[fallbackKey].realisedUsd += allocUsd;
+        map[fallbackKey].realisedInr += allocInr;
       }
     }
 
-    return Object.values(map);
-  }, [shipments, banks]);
+    return Object.values(map).map((entry) => ({
+      bankName: entry.bankName,
+      bills: entry.shipmentIds.size,
+      realisedUsd: entry.realisedUsd,
+      realisedInr: entry.realisedInr,
+    }));
+  }, [shipments, banks, payments]);
 
   // 4. Monthly Breakdown
   const monthlyData = useMemo(() => {
@@ -295,7 +317,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
     );
   }
 
-  const { stats, total } = buyerCrossTab;
+  const { buyerColumns, stats, total } = buyerCrossTab;
   const realizationPct = total.billedUsd > 0 ? (total.realisedUsd / total.billedUsd) * 100 : 0;
 
   return (
@@ -391,12 +413,12 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
         </div>
       </div>
 
-      {/* 1. FIVE BUYER CROSS-TABULATION MATRIX (Part 9.1) */}
+      {/* 1. CONSIGNEE CROSS-TABULATION MATRIX (Part 9.1) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
             <Building2 size={16} className="text-blue-600" />
-            <span>Overseas Consignee Matrix (5 Buyers + Consolidated Total)</span>
+            <span>Overseas Consignee Matrix ({buyerColumns.length} Buyers + Consolidated Total)</span>
           </h3>
           <span className="text-xs text-slate-400">Canonical Worksheet 5 Layout</span>
         </div>
@@ -407,7 +429,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
               <thead className="bg-slate-900 text-slate-200 text-[11px] uppercase tracking-wider font-semibold">
                 <tr>
                   <th className="p-3 w-48">Financial Metric</th>
-                  {canonicalBuyers.map((b) => (
+                  {buyerColumns.map((b) => (
                     <th key={b} className="p-3 text-right max-w-[150px] truncate" title={b}>
                       {b.replace(' PRIVATE LIMITED', '').replace(' PVT LTD', '')}
                     </th>
@@ -419,7 +441,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
                 {/* Row 1: Total Bills */}
                 <tr className="hover:bg-slate-50">
                   <td className="p-3 font-sans font-semibold text-slate-900">Total Bills (Count)</td>
-                  {canonicalBuyers.map((b) => (
+                  {buyerColumns.map((b) => (
                     <td key={b} className="p-3 text-right text-slate-700">
                       {stats[b].bills}
                     </td>
@@ -430,7 +452,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
                 {/* Row 2: Billed USD */}
                 <tr className="hover:bg-slate-50">
                   <td className="p-3 font-sans font-semibold text-slate-900">Billed Value (USD)</td>
-                  {canonicalBuyers.map((b) => (
+                  {buyerColumns.map((b) => (
                     <td key={b} className="p-3 text-right text-slate-900">
                       ${stats[b].billedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
@@ -443,7 +465,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
                 {/* Row 3: Realised USD */}
                 <tr className="hover:bg-slate-50">
                   <td className="p-3 font-sans font-semibold text-slate-900">Realised Value (USD)</td>
-                  {canonicalBuyers.map((b) => (
+                  {buyerColumns.map((b) => (
                     <td key={b} className="p-3 text-right text-emerald-700 font-semibold">
                       ${stats[b].realisedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
@@ -456,7 +478,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
                 {/* Row 4: Customs FOB INR */}
                 <tr className="hover:bg-slate-50">
                   <td className="p-3 font-sans font-semibold text-slate-900">Customs FOB (INR)</td>
-                  {canonicalBuyers.map((b) => (
+                  {buyerColumns.map((b) => (
                     <td key={b} className="p-3 text-right text-slate-700">
                       ₹{stats[b].fobInr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
@@ -469,7 +491,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
                 {/* Row 5: Realised INR */}
                 <tr className="hover:bg-slate-50">
                   <td className="p-3 font-sans font-semibold text-slate-900">Realised Bank (INR)</td>
-                  {canonicalBuyers.map((b) => (
+                  {buyerColumns.map((b) => (
                     <td key={b} className="p-3 text-right text-emerald-700">
                       ₹{stats[b].realisedInr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
@@ -482,7 +504,7 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
                 {/* Row 6: Net Forex Gain/Loss INR */}
                 <tr className="bg-slate-50/50 hover:bg-slate-100">
                   <td className="p-3 font-sans font-bold text-slate-900">Net Forex Gain/Loss (INR)</td>
-                  {canonicalBuyers.map((b) => {
+                  {buyerColumns.map((b) => {
                     const fx = stats[b].netForexInr;
                     return (
                       <td key={b} className={`p-3 text-right font-bold ${fx >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>

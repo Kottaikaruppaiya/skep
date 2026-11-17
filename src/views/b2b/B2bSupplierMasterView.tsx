@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client.ts';
 import type { Supplier, Role, B2bInvoice } from '../../types/index.ts';
+import { ConfirmationModal } from '../../components/ConfirmationModal.tsx';
+import { isValidGstin, normalizeGstin } from '../../shared/utils/normalizer.ts';
 
 interface B2bSupplierMasterViewProps {
   userRole: Role;
@@ -50,6 +52,7 @@ export const B2bSupplierMasterView: React.FC<B2bSupplierMasterViewProps> = ({ us
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
   const [saving, setSaving] = useState(false);
 
   const isViewer = userRole === 'VIEWER';
@@ -103,32 +106,29 @@ export const B2bSupplierMasterView: React.FC<B2bSupplierMasterViewProps> = ({ us
     }
   };
 
-  const handleDelete = async (sup: Supplier) => {
+  const handleDelete = (sup: Supplier) => {
     if (isViewer) return;
     setActionError(null);
     if (sup.invoiceCount && sup.invoiceCount > 0) {
       setActionError(`Cannot delete supplier "${sup.legalName}" because it has ${sup.invoiceCount} linked B2B invoices.`);
       return;
     }
-    if (!confirm(`Are you sure you want to delete supplier "${sup.legalName}" (${sup.gstin})?`)) {
-      return;
-    }
+    setDeleteTarget(sup);
+  };
 
-    try {
-      await api.deleteB2bSupplier(sup.id);
-      loadSuppliers();
-    } catch (err: any) {
-      setActionError(err.message || 'Failed to delete supplier.');
-    }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await api.deleteB2bSupplier(deleteTarget.id);
+    loadSuppliers();
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
-    const cleanGstin = formData.gstin.trim().toUpperCase();
-    if (!cleanGstin || cleanGstin.length !== 15) {
-      setFormError('Please enter a valid 15-character GSTIN.');
+    const cleanGstin = normalizeGstin(formData.gstin);
+    if (!isValidGstin(cleanGstin)) {
+      setFormError('Please enter a valid 15-character GSTIN (e.g., 33AAACH2748P1ZP).');
       return;
     }
     if (!formData.legalName.trim()) {
@@ -397,7 +397,7 @@ export const B2bSupplierMasterView: React.FC<B2bSupplierMasterViewProps> = ({ us
                     type="text"
                     value={formData.state}
                     onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                    placeholder="e.g. Tamil Nadu"
+                    placeholder="State name"
                     className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
@@ -471,7 +471,7 @@ export const B2bSupplierMasterView: React.FC<B2bSupplierMasterViewProps> = ({ us
               </div>
               <div>
                 <span className="text-slate-500 uppercase font-semibold block">State:</span>
-                <span className="text-sm font-semibold text-slate-800">{viewingSupplier.state || 'Tamil Nadu'}</span>
+                <span className="text-sm font-semibold text-slate-800">{viewingSupplier.state || '—'}</span>
               </div>
             </div>
 
@@ -537,6 +537,16 @@ export const B2bSupplierMasterView: React.FC<B2bSupplierMasterViewProps> = ({ us
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Delete B2B Supplier"
+        itemName={deleteTarget ? `${deleteTarget.legalName} (${deleteTarget.gstin})` : ''}
+        itemType="supplier master"
+        message="Are you sure you want to permanently delete this supplier profile?"
+        confirmText="Delete Supplier"
+      />
     </div>
   );
 };

@@ -5,7 +5,7 @@
 
 import net from 'net';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { ServiceUnavailableError } from '../shared/errors/app-error.ts';
+import { getMockPrisma } from './mock-prisma.ts';
 
 export type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -15,6 +15,10 @@ const globalForPrisma = globalThis as unknown as {
 
 export function isDatabaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim().length > 0);
+}
+
+export function isMockDatabaseAllowed(): boolean {
+  return process.env.NODE_ENV !== 'production' && process.env.ALLOW_MOCK_DB === 'true';
 }
 
 /**
@@ -61,10 +65,10 @@ export async function isDatabaseReachable(timeoutMs = 500): Promise<boolean> {
 
 export function getPrisma(): PrismaClient {
   if (!isDatabaseConfigured()) {
-    throw new ServiceUnavailableError(
-      'PostgreSQL DATABASE_URL is not configured. Configure DATABASE_URL to enable database operations.',
-      'DATABASE_UNCONFIGURED'
-    );
+    if (isMockDatabaseAllowed()) {
+      return getMockPrisma();
+    }
+    throw new Error('PostgreSQL database is not configured (DATABASE_URL is missing).');
   }
 
   if (!globalForPrisma.prisma) {
@@ -81,6 +85,9 @@ export async function withTransaction<T>(
   options?: { maxWait?: number; timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel }
 ): Promise<T> {
   const prisma = getPrisma();
+  if (!isDatabaseConfigured()) {
+    return fn(prisma as unknown as Prisma.TransactionClient);
+  }
   return prisma.$transaction(fn, {
     maxWait: options?.maxWait ?? 10000,
     timeout: options?.timeout ?? 30000,

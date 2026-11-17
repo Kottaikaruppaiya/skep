@@ -5,7 +5,7 @@
 
 import type { BankMaster, ConsigneeMaster, FinancialYear } from '../../../src/types/index.ts';
 import type { DbClient } from '../../config/prisma.ts';
-import { ConflictError, NotFoundError } from '../../shared/errors/app-error.ts';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors/app-error.ts';
 import { mastersRepository } from './masters.repository.ts';
 
 export const mastersService = {
@@ -53,9 +53,12 @@ export const mastersService = {
     input: { consigneeId?: string; consigneeName?: string; portOfDischarge?: string },
     db?: DbClient
   ): Promise<ConsigneeMaster> {
-    if (input.consigneeId) {
-      const byId = await mastersRepository.findConsigneeById(input.consigneeId, db);
-      if (byId) return byId;
+    if (input.consigneeId && input.consigneeId.trim()) {
+      const byId = await mastersRepository.findConsigneeById(input.consigneeId.trim(), db);
+      if (!byId) {
+        throw new NotFoundError(`Consignee '${input.consigneeId}' not found.`);
+      }
+      return byId;
     }
 
     if (input.consigneeName && input.consigneeName.trim()) {
@@ -76,11 +79,7 @@ export const mastersService = {
       );
     }
 
-    const all = await mastersRepository.findAllConsignees(db);
-    if (all.length === 0) {
-      throw new NotFoundError('No consignee exists in ConsigneeMaster.');
-    }
-    return all[0];
+    throw new ValidationError('A valid consigneeId or consigneeName is required.');
   },
 
   async updateConsignee(
@@ -126,19 +125,21 @@ export const mastersService = {
   },
 
   async resolveBankId(bankId?: string, bankName?: string, db?: DbClient): Promise<string> {
-    if (bankId) {
-      const found = await mastersRepository.findBankById(bankId, db);
-      if (found) return found.id;
+    if (bankId && bankId.trim()) {
+      const found = await mastersRepository.findBankById(bankId.trim(), db);
+      if (!found) {
+        throw new NotFoundError(`Authorised Dealer Bank '${bankId}' not found.`);
+      }
+      return found.id;
     }
     if (bankName && bankName.trim()) {
       const found = await mastersRepository.findBankByName(bankName, db);
-      if (found) return found.id;
+      if (!found) {
+        throw new NotFoundError(`Authorised Dealer Bank '${bankName.trim()}' not found in Bank Master.`);
+      }
+      return found.id;
     }
-    const all = await mastersRepository.findAllBanks(db);
-    if (all.length === 0) {
-      throw new NotFoundError('No bank configured in BankMaster.');
-    }
-    return all[0].id;
+    throw new ValidationError('A valid bankId or bankName is required.');
   },
 
   async createBank(

@@ -75,24 +75,28 @@ export const allocationService = {
 
   async deallocate(allocationId: string): Promise<{ success: boolean }> {
     return withTransaction(async (tx) => {
+      const initial = await paymentsRepository.findAllocationById(allocationId, tx);
+      if (!initial) throw new NotFoundError('Allocation not found.');
+
+      const { payment, shipment } = await paymentsRepository.lockPaymentAndShipmentForAllocation(
+        initial.paymentId,
+        initial.shipmentId,
+        tx
+      );
+      if (!payment) throw new NotFoundError('Linked payment not found.');
+      if (!shipment) throw new NotFoundError('Linked shipment not found.');
+
       const existing = await paymentsRepository.findAllocationById(allocationId, tx);
       if (!existing) throw new NotFoundError('Allocation not found.');
 
       await paymentsRepository.deleteAllocation(allocationId, tx);
 
-      const shipment = await tx.shipment.findUnique({
-        where: { id: existing.shipmentId },
-        select: { id: true, invoiceValueUsd: true },
+      const remainingPaid = await paymentsRepository.sumAllocationsForShipment(shipment.id, tx);
+      const newStatus = deriveShipmentPaymentStatus(shipment.invoiceValueUsd, remainingPaid);
+      await tx.shipment.update({
+        where: { id: shipment.id },
+        data: { paymentStatus: newStatus },
       });
-
-      if (shipment) {
-        const remainingPaid = await paymentsRepository.sumAllocationsForShipment(shipment.id, tx);
-        const newStatus = deriveShipmentPaymentStatus(Number(shipment.invoiceValueUsd), remainingPaid);
-        await tx.shipment.update({
-          where: { id: shipment.id },
-          data: { paymentStatus: newStatus },
-        });
-      }
 
       return { success: true };
     });

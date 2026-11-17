@@ -14,13 +14,9 @@ export function calculateStatutoryDeadline(shippingBillDate: string, statutoryDa
 
 export function deriveBrcStatus(
   currentStatus: BrcStatus,
-  statutoryDeadline?: string,
-  brcNumber?: string
+  statutoryDeadline?: string
 ): BrcStatus {
-  if (brcNumber && brcNumber.trim() && currentStatus === 'PENDING') {
-    return 'REALISED';
-  }
-  if (currentStatus === 'PENDING' && statutoryDeadline) {
+  if ((currentStatus === 'PENDING' || currentStatus === 'ISSUED') && statutoryDeadline) {
     const dl = new Date(statutoryDeadline);
     if (!isNaN(dl.getTime()) && dl < new Date()) {
       return 'OVERDUE';

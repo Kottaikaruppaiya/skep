@@ -14,8 +14,9 @@ import type {
 import { withTransaction, type DbClient } from '../../config/prisma.ts';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors/app-error.ts';
 import { parseDateOptional, parseDateRequired } from '../../shared/utils/date.ts';
-import { round2 } from '../../shared/utils/decimal.ts';
-import { normalizeGstrPeriod } from '../../shared/utils/gstr-period.ts';
+import { dAdd, round2 } from '../../shared/utils/decimal.ts';
+import { isValidGstin, normalizeGstin } from '../../shared/utils/gstin.ts';
+import { getCurrentIndianFinancialYearLabel, normalizeGstrPeriod } from '../../shared/utils/gstr-period.ts';
 import {
   buildB2bDashboardMetrics,
   buildB2bMonthlySummaries,
@@ -39,8 +40,8 @@ export const b2bService = {
     data: { gstin: string; legalName: string; tradeName?: string; address?: string; state?: string },
     db?: DbClient
   ): Promise<Supplier> {
-    const gstin = data.gstin.trim().toUpperCase();
-    if (!gstin || gstin.length !== 15) {
+    const gstin = normalizeGstin(data.gstin);
+    if (!isValidGstin(gstin)) {
       throw new ValidationError('Valid 15-character GSTIN is required.');
     }
     const legalName = data.legalName.trim();
@@ -109,9 +110,9 @@ export const b2bService = {
     let totalGst = 0;
     let totalInvoiceValue = 0;
     for (const inv of allFiltered) {
-      totalTaxableValue += inv.taxableValue || 0;
-      totalGst += inv.totalGst || 0;
-      totalInvoiceValue += inv.invoiceValue || 0;
+      totalTaxableValue = dAdd(totalTaxableValue, inv.taxableValue || 0);
+      totalGst = dAdd(totalGst, inv.totalGst || 0);
+      totalInvoiceValue = dAdd(totalInvoiceValue, inv.invoiceValue || 0);
     }
 
     const total = allFiltered.length;
@@ -136,8 +137,8 @@ export const b2bService = {
   },
 
   async createInvoiceWithTx(tx: DbClient, data: any, userId?: string): Promise<B2bInvoice> {
-    const supplierGstin = String(data.supplierGstin || '').trim().toUpperCase();
-    if (!supplierGstin || supplierGstin.length !== 15) {
+    const supplierGstin = normalizeGstin(data.supplierGstin);
+    if (!isValidGstin(supplierGstin)) {
       throw new ValidationError('Valid 15-character Supplier GSTIN is required.');
     }
 
@@ -157,8 +158,20 @@ export const b2bService = {
     const parsedPeriod = normalizeGstrPeriod(data.gstrPeriod);
     if (!parsedPeriod) {
       throw new ValidationError(
-        `Invalid GSTR Period: "${data.gstrPeriod}". Must be a valid period like "August 2026", "2026-08", or "08-2026".`
+        `Invalid GSTR Period: "${data.gstrPeriod}". Must be a valid period like "08-2026" or "Aug 2026".`
       );
+    }
+
+    const numericChecks = [
+      data.invoiceValue,
+      data.taxableValue,
+      data.integratedTax,
+      data.centralTax,
+      data.stateUtTax,
+      data.cess,
+    ];
+    if (numericChecks.some((v) => v !== undefined && v !== null && (!Number.isFinite(Number(v)) || Number(v) < 0))) {
+      throw new ValidationError('Invoice and GST tax amounts must be non-negative finite numbers.');
     }
 
     let supplier = await b2bRepository.findSupplierByGstin(supplierGstin, tx);
@@ -177,6 +190,10 @@ export const b2bService = {
     }
 
     const taxes = calculateB2bInvoiceTaxTotals(data);
+    const parsedTaxRate =
+      data.applicableTaxRate !== undefined && data.applicableTaxRate !== null && data.applicableTaxRate !== ''
+        ? Number(data.applicableTaxRate)
+        : null;
 
     return b2bRepository.createInvoice(
       {
@@ -201,8 +218,8 @@ export const b2bService = {
         filingDate: parseDateOptional(data.filingDate),
         itcAvailability: data.itcAvailability === 'No' ? 'No' : 'Yes',
         reason: data.reason?.trim() || null,
-        applicableTaxRate: data.applicableTaxRate ? Number(data.applicableTaxRate) : 100,
-        source: data.source?.trim() || 'GSTR-1',
+        applicableTaxRate: parsedTaxRate,
+        source: data.source?.trim() || null,
         irn: data.irn?.trim() || null,
         irnDate: parseDateOptional(data.irnDate),
         importBatchId: data.importBatchId || null,
@@ -220,7 +237,10 @@ export const b2bService = {
     const invoice = await b2bRepository.findInvoiceById(id, tx);
     if (!invoice) throw new NotFoundError('B2B Invoice not found.');
 
-    const newGstin = String(updates.supplierGstin || invoice.supplierGstin).trim().toUpperCase();
+    const newGstin = normalizeGstin(updates.supplierGstin || invoice.supplierGstin);
+    if (!isValidGstin(newGstin)) {
+      throw new ValidationError('Valid 15-character Supplier GSTIN is required.');
+    }
     const newInvoiceNumber = String(updates.invoiceNumber || invoice.invoiceNumber).trim();
     const newInvoiceType = String(updates.invoiceType || invoice.invoiceType).trim();
 
@@ -292,8 +312,11 @@ export const b2bService = {
       patch.itcAvailability = updates.itcAvailability === 'No' ? 'No' : 'Yes';
     }
     if (updates.reason !== undefined) patch.reason = String(updates.reason || '').trim() || null;
-    if (updates.applicableTaxRate !== undefined && updates.applicableTaxRate !== null) {
-      patch.applicableTaxRate = Number(updates.applicableTaxRate);
+    if (updates.applicableTaxRate !== undefined) {
+      patch.applicableTaxRate =
+        updates.applicableTaxRate === null || updates.applicableTaxRate === ''
+          ? null
+          : Number(updates.applicableTaxRate);
     }
     if (updates.source !== undefined) patch.source = String(updates.source || '').trim() || null;
     if (updates.irn !== undefined) patch.irn = String(updates.irn || '').trim() || null;
@@ -323,7 +346,7 @@ export const b2bService = {
     const invoices = await b2bRepository.findInvoices({ periodKey });
     const parsed = normalizeGstrPeriod(periodKey);
     const displayPeriod = parsed?.displayPeriod || periodKey;
-    const financialYear = parsed?.financialYear || '2026-27';
+    const financialYear = parsed?.financialYear || getCurrentIndianFinancialYearLabel();
 
     const summary = computeMonthlySummaryBlock(periodKey, displayPeriod, financialYear, invoices);
 
@@ -343,9 +366,9 @@ export const b2bService = {
         totalGst: 0,
       };
       existing.invoiceCount += 1;
-      existing.invoiceValue = round2(existing.invoiceValue + (inv.invoiceValue || 0));
-      existing.taxableValue = round2(existing.taxableValue + (inv.taxableValue || 0));
-      existing.totalGst = round2(existing.totalGst + (inv.totalGst || 0));
+      existing.invoiceValue = round2(dAdd(existing.invoiceValue, inv.invoiceValue || 0));
+      existing.taxableValue = round2(dAdd(existing.taxableValue, inv.taxableValue || 0));
+      existing.totalGst = round2(dAdd(existing.totalGst, inv.totalGst || 0));
       supMap.set(gstin, existing);
     }
 
@@ -377,7 +400,7 @@ export const b2bService = {
     previewData: any,
     mode: 'SKIP_EXISTING' | 'OVERWRITE_EXISTING' | 'INSERT_ALL',
     userId?: string
-  ): Promise<{ batchId: string; totalProcessed: number; inserted: number; updated: number; skipped: number }> {
+  ): Promise<{ batchId: string; totalProcessed: number; inserted: number; updated: number; skipped: number; failed: number }> {
     const rowsToProcess = Array.isArray(previewData.allParsedRecords)
       ? previewData.allParsedRecords
       : Array.isArray(previewData.sampleRows)
@@ -392,9 +415,11 @@ export const b2bService = {
 
     return withTransaction(async (tx) => {
       const batchId = `batch-${Date.now()}`;
+      const previewErrorsCount = Array.isArray(previewData.errors) ? previewData.errors.length : 0;
       let inserted = 0;
       let updated = 0;
       let skipped = 0;
+      let failed = 0;
       const gstrPeriodSummary: Record<string, number> = {};
 
       // Create the ImportBatch record first so foreign keys on B2bInvoice resolve cleanly
@@ -404,9 +429,9 @@ export const b2bService = {
           fileName: batchMeta.fileName,
           fileSizeBytes: batchMeta.fileSizeBytes,
           uploadedBy: userId,
-          totalRows: rowsToProcess.length,
+          totalRows: rowsToProcess.length + previewErrorsCount,
           successfulRows: 0,
-          failedRows: (previewData.errors || []).length,
+          failedRows: previewErrorsCount,
           duplicateRows: (previewData.duplicates || []).length,
           importStatus: 'COMPLETED',
           gstrPeriodSummary: {},
@@ -415,18 +440,23 @@ export const b2bService = {
       );
 
       for (const row of rowsToProcess) {
-        const supplierGstin = String(row.supplierGstin || '').trim().toUpperCase();
+        const supplierGstin = normalizeGstin(row.supplierGstin);
         const invoiceNumber = String(row.invoiceNumber || '').trim();
         const invoiceType = String(row.invoiceType || 'Regular').trim() || 'Regular';
-
-        if (!supplierGstin || supplierGstin.length !== 15 || !invoiceNumber) {
-          skipped++;
-          continue;
-        }
-
         const parsedPeriod = normalizeGstrPeriod(row.gstrPeriod);
-        if (!parsedPeriod) {
-          skipped++;
+        const parsedInvoiceDate = parseDateOptional(row.invoiceDate);
+
+        const numericInvalid = [
+          row.invoiceValue,
+          row.taxableValue,
+          row.integratedTax,
+          row.centralTax,
+          row.stateUtTax,
+          row.cess,
+        ].some((v) => v !== undefined && v !== null && (!Number.isFinite(Number(v)) || Number(v) < 0));
+
+        if (!isValidGstin(supplierGstin) || !invoiceNumber || !parsedPeriod || !parsedInvoiceDate || numericInvalid) {
+          failed++;
           continue;
         }
 
@@ -444,19 +474,43 @@ export const b2bService = {
             continue;
           }
 
-          // OVERWRITE_EXISTING or INSERT_ALL on composite-key collision safely updates existing row
-          const updatedInv = await this.updateInvoiceWithTx(
+          if (mode === 'OVERWRITE_EXISTING') {
+            const updatedInv = await this.updateInvoiceWithTx(
+              tx,
+              existing.id,
+              {
+                ...row,
+                importBatchId: batchId,
+              },
+              userId
+            );
+            updated++;
+            const pKey = updatedInv.periodKey || parsedPeriod.periodKey;
+            gstrPeriodSummary[pKey] = (gstrPeriodSummary[pKey] || 0) + 1;
+            continue;
+          }
+
+          // INSERT_ALL preserves existing records and inserts a new disambiguated entry
+          let copyIndex = 2;
+          let distinctInvoiceType = `${invoiceType} (Copy ${copyIndex})`;
+          while (
+            await b2bRepository.findInvoiceByCompositeKey(supplierGstin, invoiceNumber, distinctInvoiceType, undefined, tx)
+          ) {
+            copyIndex++;
+            distinctInvoiceType = `${invoiceType} (Copy ${copyIndex})`;
+          }
+
+          const createdCopy = await this.createInvoiceWithTx(
             tx,
-            existing.id,
             {
               ...row,
+              invoiceType: distinctInvoiceType,
               importBatchId: batchId,
             },
             userId
           );
-          updated++;
-          const pKey = updatedInv.periodKey || parsedPeriod.periodKey;
-          gstrPeriodSummary[pKey] = (gstrPeriodSummary[pKey] || 0) + 1;
+          inserted++;
+          gstrPeriodSummary[createdCopy.periodKey] = (gstrPeriodSummary[createdCopy.periodKey] || 0) + 1;
           continue;
         }
 
@@ -472,12 +526,13 @@ export const b2bService = {
         gstrPeriodSummary[created.periodKey] = (gstrPeriodSummary[created.periodKey] || 0) + 1;
       }
 
+      const totalFailed = previewErrorsCount + failed;
       const finalStatus =
         inserted + updated > 0
-          ? (previewData.errors || []).length > 0
+          ? totalFailed > 0
             ? 'PARTIAL'
             : 'COMPLETED'
-          : skipped > 0 && (previewData.errors || []).length === 0
+          : skipped > 0 && totalFailed === 0
             ? 'COMPLETED'
             : 'FAILED';
 
@@ -485,6 +540,7 @@ export const b2bService = {
         where: { id: batchId },
         data: {
           successfulRows: inserted + updated,
+          failedRows: totalFailed,
           importStatus: finalStatus,
           gstrPeriodSummary,
         },
@@ -496,6 +552,7 @@ export const b2bService = {
         inserted,
         updated,
         skipped,
+        failed: totalFailed,
       };
     });
   },

@@ -20,6 +20,11 @@ import {
 import { api } from '../../api/client.ts';
 import type { B2bDashboardMetrics, FinancialYear, Role } from '../../types/index.ts';
 import { B2bAddInvoiceModal } from './B2bAddInvoiceModal.tsx';
+import {
+  getCurrentIndianFinancialYearLabel,
+  getDefaultGstrPeriodLabel,
+  getFiscalYearOptions,
+} from '../../shared/utils/normalizer.ts';
 
 interface B2bDashboardViewProps {
   userRole: Role;
@@ -29,7 +34,13 @@ interface B2bDashboardViewProps {
 export const B2bDashboardView: React.FC<B2bDashboardViewProps> = ({ userRole, onNavigateTab }) => {
   const [metrics, setMetrics] = useState<B2bDashboardMetrics | null>(null);
   const [financialYears, setFinancialYears] = useState<FinancialYear[]>([]);
-  const [selectedFy, setSelectedFy] = useState<string>('2026-27');
+  const [selectedFy, setSelectedFy] = useState<string>(() => getCurrentIndianFinancialYearLabel());
+  const fyOptions = Array.from(
+    new Set([
+      ...getFiscalYearOptions(),
+      ...financialYears.map((f) => f.label),
+    ])
+  ).sort();
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
@@ -86,8 +97,11 @@ export const B2bDashboardView: React.FC<B2bDashboardViewProps> = ({ userRole, on
               onChange={(e) => setSelectedFy(e.target.value)}
               className="bg-white text-xs font-semibold text-slate-800 rounded-md px-2 py-1 border-0 shadow-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden cursor-pointer"
             >
-              <option value="2026-27">FY 2026-27</option>
-              <option value="2025-26">FY 2025-26</option>
+              {fyOptions.map((fy) => (
+                <option key={fy} value={fy}>
+                  FY {fy}
+                </option>
+              ))}
               <option value="ALL">All Financial Years</option>
             </select>
           </div>
@@ -422,7 +436,7 @@ export const B2bDashboardView: React.FC<B2bDashboardViewProps> = ({ userRole, on
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
           onSuccess={loadData}
-          defaultPeriodKey="August 2026"
+          defaultPeriodKey={getDefaultGstrPeriodLabel()}
         />
       )}
     </div>

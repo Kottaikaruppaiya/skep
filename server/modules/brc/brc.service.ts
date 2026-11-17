@@ -4,10 +4,11 @@
  */
 
 import type { BrcRecord, BrcStatus, BrcUploadMode } from '../../../src/types/index.ts';
-import type { DbClient } from '../../config/prisma.ts';
-import { NotFoundError } from '../../shared/errors/app-error.ts';
+import { getPrisma, type DbClient } from '../../config/prisma.ts';
+import { NotFoundError, ValidationError } from '../../shared/errors/app-error.ts';
 import { parseDateOptional } from '../../shared/utils/date.ts';
 import { round2 } from '../../shared/utils/decimal.ts';
+import { documentsRepository } from '../documents/documents.repository.ts';
 import { calculateStatutoryDeadline, deriveBrcStatus } from './brc.calculator.ts';
 import { brcRepository } from './brc.repository.ts';
 
@@ -45,27 +46,54 @@ export const brcService = {
       status?: BrcStatus;
       remarks?: string | null;
     },
-    db?: DbClient
+    db: DbClient = getPrisma()
   ): Promise<BrcRecord> {
     let existing = await brcRepository.findByIdOrShipmentId(idOrShipmentId, db);
     if (!existing) {
+      const shipment = await db.shipment.findUnique({ where: { id: idOrShipmentId } });
+      if (!shipment) {
+        throw new NotFoundError('Shipment or BRC record not found.');
+      }
       existing = await brcRepository.create(
         {
-          shipmentId: idOrShipmentId,
+          shipmentId: shipment.id,
           uploadMode: updates.uploadMode || 'SINGLE',
-          status: updates.status || 'PENDING',
+          status: 'PENDING',
         },
         db
       );
     }
 
-    const nextBrcNumber = updates.brcNumber !== undefined ? updates.brcNumber?.trim() || undefined : existing.brcNumber;
     const nextDeadline =
       updates.statutoryDeadline !== undefined
         ? updates.statutoryDeadline || undefined
         : existing.statutoryDeadline;
     const baseStatus = updates.status !== undefined ? updates.status : existing.status;
-    const finalStatus = deriveBrcStatus(baseStatus, nextDeadline, nextBrcNumber);
+    const finalStatus = deriveBrcStatus(baseStatus, nextDeadline);
+    const targetMode: BrcUploadMode = updates.uploadMode ?? existing.uploadMode;
+
+    const currentBrcDocs = await documentsRepository.findCurrentBrcDocsForShipment(existing.shipmentId, db);
+    const hasCopy1 = currentBrcDocs.some((d) => d.category === 'BRC_COPY_1');
+    const hasCopy2 = currentBrcDocs.some((d) => d.category === 'BRC_COPY_2');
+
+    if (targetMode === 'SINGLE') {
+      if (hasCopy2 || currentBrcDocs.length > 1) {
+        throw new ValidationError(
+          'SINGLE BRC mode permits exactly one BRC document (BRC Copy 1). Remove BRC Copy 2 before switching to SINGLE mode.'
+        );
+      }
+      if (finalStatus === 'REALISED' && (!hasCopy1 || currentBrcDocs.length !== 1)) {
+        throw new ValidationError(
+          'Cannot mark BRC as REALISED in SINGLE mode: exactly 1 current BRC document (BRC Copy 1) must be attached.'
+        );
+      }
+    } else if (targetMode === 'MULTIPLE') {
+      if (finalStatus === 'REALISED' && (!hasCopy1 || !hasCopy2 || currentBrcDocs.length !== 2)) {
+        throw new ValidationError(
+          'Cannot mark BRC as REALISED in MULTIPLE mode: exactly 2 current BRC documents (BRC Copy 1 and BRC Copy 2) must be attached.'
+        );
+      }
+    }
 
     return brcRepository.update(
       existing.id,

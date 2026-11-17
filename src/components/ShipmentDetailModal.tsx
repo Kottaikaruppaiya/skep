@@ -60,7 +60,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [isAddingIncentive, setIsAddingIncentive] = useState(false);
   const [incType, setIncType] = useState<'DRAWBACK' | 'RODTEP' | 'ROSCTL'>('DRAWBACK');
   const [incClaimed, setIncClaimed] = useState<number>(0);
-  const [incStatus, setIncStatus] = useState<string>('CLAIMED');
+  const [incStatus, setIncStatus] = useState<'PENDING' | 'PART_RECEIVED' | 'RECEIVED'>('PENDING');
   const [incReceived, setIncReceived] = useState<number>(0);
   const [incReceivedDate, setIncReceivedDate] = useState<string>('');
   const [incScrollNo, setIncScrollNo] = useState<string>('');
@@ -298,7 +298,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     setEditingIncentive(inc);
     setIncType(inc.type);
     setIncClaimed(inc.claimedAmount || 0);
-    setIncStatus(inc.status || 'CLAIMED');
+    setIncStatus(inc.status || 'PENDING');
     setIncReceived(inc.receivedAmount || 0);
     setIncReceivedDate(inc.receivedDate || '');
     setIncScrollNo(inc.scrollNumber || '');
@@ -309,6 +309,14 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     e.preventDefault();
     if (!editingIncentive) return;
     setActionError(null);
+    if (Number(incClaimed) < 0 || Number(incReceived) < 0) {
+      setActionError('Claimed and received amounts cannot be negative.');
+      return;
+    }
+    if (Number(incReceived) > Number(incClaimed)) {
+      setActionError('Received incentive amount cannot exceed claimed amount.');
+      return;
+    }
     try {
       await api.updateIncentive(editingIncentive.id, {
         status: incStatus as any,
@@ -385,7 +393,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     setIsAddingIncentive(true);
     setIncType('DRAWBACK');
     setIncClaimed(0);
-    setIncStatus('CLAIMED');
+    setIncStatus('PENDING');
     setIncReceived(0);
     setIncReceivedDate('');
     setIncScrollNo('');
@@ -396,6 +404,14 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     e.preventDefault();
     if (!shipment) return;
     setActionError(null);
+    if (Number(incClaimed) < 0 || Number(incReceived) < 0) {
+      setActionError('Claimed and received amounts cannot be negative.');
+      return;
+    }
+    if (Number(incReceived) > Number(incClaimed)) {
+      setActionError('Received incentive amount cannot exceed claimed amount.');
+      return;
+    }
     try {
       await api.createIncentive({
         shipmentId: shipment.id,

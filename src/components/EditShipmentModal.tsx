@@ -30,7 +30,7 @@ export const EditShipmentModal: React.FC<EditShipmentModalProps> = ({
   const [invoiceValueUsd, setInvoiceValueUsd] = useState<number>(0);
   const [shippingBillNumber, setShippingBillNumber] = useState('');
   const [shippingBillDate, setShippingBillDate] = useState('');
-  const [sbExchangeRate, setSbExchangeRate] = useState<number>(84.5);
+  const [sbExchangeRate, setSbExchangeRate] = useState<number>(0);
   const [fobValueInr, setFobValueInr] = useState<number>(0);
   const [blNumber, setBlNumber] = useState('');
   const [blDate, setBlDate] = useState('');
@@ -51,7 +51,7 @@ export const EditShipmentModal: React.FC<EditShipmentModalProps> = ({
       setInvoiceValueUsd(shipment.invoiceValueUsd || 0);
       setShippingBillNumber(shipment.shippingBillNumber || '');
       setShippingBillDate(shipment.shippingBillDate ? shipment.shippingBillDate.split('T')[0] : '');
-      setSbExchangeRate(shipment.sbExchangeRate || 84.5);
+      setSbExchangeRate(shipment.sbExchangeRate || 0);
       setFobValueInr(shipment.fobValueInr || 0);
       setBlNumber(shipment.blNumber || '');
       setBlDate(shipment.blDate ? shipment.blDate.split('T')[0] : '');
@@ -67,7 +67,7 @@ export const EditShipmentModal: React.FC<EditShipmentModalProps> = ({
   const normalizedKey = normalizeInvoiceKey(invoiceNumber);
 
   const handleRecalculateFob = () => {
-    const calculated = Math.round(Number(invoiceValueUsd || 0) * Number(sbExchangeRate || 84.5) * 100) / 100;
+    const calculated = Math.round(Number(invoiceValueUsd || 0) * Number(sbExchangeRate || 0) * 100) / 100;
     setFobValueInr(calculated);
   };
 
@@ -80,6 +80,7 @@ export const EditShipmentModal: React.FC<EditShipmentModalProps> = ({
       if (!invoiceNumber.trim()) throw new Error('Invoice Number cannot be empty.');
       if (!consigneeId) throw new Error('Please select a Buyer / Consignee.');
       if (invoiceValueUsd <= 0) throw new Error('Invoice Value (USD) must be greater than 0.');
+      if (sbExchangeRate <= 0) throw new Error('Customs Exchange Rate (INR) must be greater than 0.');
 
       await api.updateShipment(shipment.id, {
         invoiceNumber: invoiceNumber.trim(),

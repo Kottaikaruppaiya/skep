@@ -12,7 +12,8 @@ import type {
 } from '../../../src/types/index.ts';
 import { getPrisma, withTransaction, type DbClient } from '../../config/prisma.ts';
 import { extractDocumentData, mergeExtractedDocuments } from '../ocr/ocr.extractor.ts';
-import { NotFoundError, ValidationError } from '../../shared/errors/app-error.ts';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors/app-error.ts';
+import { getCurrentIndianFinancialYearLabel } from '../../shared/utils/gstr-period.ts';
 import { documentsRepository } from './documents.repository.ts';
 import { fileStorageService } from './file-storage.service.ts';
 
@@ -62,17 +63,21 @@ export const documentsService = {
   ): Promise<{ document: DocumentRecord; extraction: DocumentExtractionResult | null }> {
     const prisma = getPrisma();
     let resolvedKey = input.invoiceKey || 'GENERAL';
+    let resolvedFyLabel = input.financialYear;
 
     if (input.shipmentId) {
       const shipment = await prisma.shipment.findUnique({
         where: { id: input.shipmentId },
-        include: { brcRecord: true },
+        include: { brcRecord: true, financialYear: true },
       });
       if (!shipment) {
         throw new NotFoundError('Target shipment not found.');
       }
       if (!input.invoiceKey) {
         resolvedKey = shipment.normalizedInvoiceKey;
+      }
+      if (!resolvedFyLabel && shipment.financialYear?.label) {
+        resolvedFyLabel = shipment.financialYear.label;
       }
 
       if (
@@ -86,8 +91,18 @@ export const documentsService = {
       }
     }
 
+    if (input.paymentId) {
+      const payment = await prisma.payment.findUnique({ where: { id: input.paymentId } });
+      if (!payment) {
+        throw new NotFoundError('Target payment not found.');
+      }
+      if (!input.invoiceKey) {
+        resolvedKey = payment.irmNumber;
+      }
+    }
+
     const { relativePath } = fileStorageService.writeDocumentFile(
-      input.financialYear || '2026-27',
+      resolvedFyLabel || getCurrentIndianFinancialYearLabel(),
       resolvedKey,
       input.category,
       file.originalname,
@@ -155,10 +170,47 @@ export const documentsService = {
   },
 
   async deleteDocument(id: string): Promise<{ success: boolean }> {
-    const doc = await documentsRepository.findById(id);
-    if (!doc) throw new NotFoundError('Document not found.');
-    await documentsRepository.delete(id);
-    fileStorageService.deletePrivateFile(doc.storedPath);
+    const deletedDoc = await withTransaction(async (tx) => {
+      const doc = await documentsRepository.findById(id, tx);
+      if (!doc) throw new NotFoundError('Document not found.');
+
+      const priorVersion =
+        doc.isCurrent && (doc.shipmentId || doc.paymentId)
+          ? await documentsRepository.findLatestPriorVersion(
+              {
+                excludeId: doc.id,
+                shipmentId: doc.shipmentId,
+                paymentId: doc.paymentId,
+                category: doc.category,
+              },
+              tx
+            )
+          : null;
+
+      if (
+        doc.isCurrent &&
+        doc.shipmentId &&
+        (doc.category === 'BRC_COPY_1' || doc.category === 'BRC_COPY_2') &&
+        !priorVersion
+      ) {
+        const brc = await tx.brcRecord.findUnique({ where: { shipmentId: doc.shipmentId } });
+        if (brc?.status === 'REALISED') {
+          throw new ConflictError(
+            `Cannot delete the only current ${doc.category} document while BRC status is REALISED. Upload a replacement version or reset BRC status from REALISED first.`
+          );
+        }
+      }
+
+      await documentsRepository.delete(id, tx);
+
+      if (priorVersion) {
+        await documentsRepository.markAsCurrent(priorVersion.id, tx);
+      }
+
+      return doc;
+    });
+
+    fileStorageService.deletePrivateFile(deletedDoc.storedPath);
     return { success: true };
   },
 };

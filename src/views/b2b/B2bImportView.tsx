@@ -41,6 +41,7 @@ export const B2bImportView: React.FC<B2bImportViewProps> = ({ userRole, onNaviga
     inserted: number;
     updated: number;
     skipped: number;
+    failed?: number;
   } | null>(null);
 
   // Batches history
@@ -236,7 +237,7 @@ export const B2bImportView: React.FC<B2bImportViewProps> = ({ userRole, onNaviga
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                Optional columns not found in workbook (default values will be applied):{' '}
+                Optional columns not found in workbook (left blank if omitted):{' '}
                 <strong className="text-slate-800">{preview.missingColumns.join(', ')}</strong>
               </span>
             </div>
@@ -459,8 +460,12 @@ export const B2bImportView: React.FC<B2bImportViewProps> = ({ userRole, onNaviga
                 }`}
               >
                 {commitResult.inserted + commitResult.updated > 0
-                  ? 'Import Completed Successfully!'
-                  : 'Import Processed — All Matching Invoices Were Skipped'}
+                  ? (commitResult.failed || 0) > 0
+                    ? 'Import Completed With Some Failed Rows'
+                    : 'Import Completed Successfully!'
+                  : (commitResult.failed || 0) > 0
+                    ? 'Import Failed — Invalid Rows Rejected'
+                    : 'Import Processed — All Matching Invoices Were Skipped'}
               </h3>
               <p
                 className={`text-xs font-mono ${
@@ -472,7 +477,7 @@ export const B2bImportView: React.FC<B2bImportViewProps> = ({ userRole, onNaviga
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4 pt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 pt-2">
             <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs">
               <span className="text-slate-500 block">Total Invoices</span>
               <span className="text-base font-bold text-slate-900">{commitResult.totalProcessed}</span>
@@ -488,6 +493,10 @@ export const B2bImportView: React.FC<B2bImportViewProps> = ({ userRole, onNaviga
             <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs">
               <span className="text-slate-500 block">Skipped</span>
               <span className="text-base font-bold text-slate-600">{commitResult.skipped}</span>
+            </div>
+            <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs">
+              <span className="text-slate-500 block">Failed / Invalid</span>
+              <span className="text-base font-bold text-rose-700">{commitResult.failed ?? 0}</span>
             </div>
           </div>
 

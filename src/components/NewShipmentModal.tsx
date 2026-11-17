@@ -20,9 +20,9 @@ import {
   KeyRound,
   Check,
 } from 'lucide-react';
-import { ConsigneeMaster, BankMaster, FinancialYear } from '../types/index.ts';
+import { ConsigneeMaster, BankMaster, FinancialYear, Payment } from '../types/index.ts';
 import { api } from '../api/client.ts';
-import { formatFileSize, normalizeInvoiceKey } from '../shared/utils/normalizer.ts';
+import { formatFileSize, getShortFyTag, normalizeInvoiceKey } from '../shared/utils/normalizer.ts';
 import {
   type BrcMode,
   type ExtractionResultSummary,
@@ -53,9 +53,7 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
   banks,
 }) => {
   const defaultFy =
-    financialYears.find(
-      (f) => f.label.includes('2026') || f.id.includes('2026') || f.isCurrent
-    )?.id || selectedFyId || 'fy-2026-27';
+    financialYears.find((f) => f.isCurrent)?.id || selectedFyId || financialYears[0]?.id || '';
 
   const [fyId, setFyId] = useState(defaultFy);
 
@@ -85,13 +83,25 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
   const [invoiceValueUsd, setInvoiceValueUsd] = useState<number | ''>('');
   const [shippingBillNumber, setShippingBillNumber] = useState('');
   const [shippingBillDate, setShippingBillDate] = useState(new Date().toISOString().split('T')[0]);
-  const [sbExchangeRate, setSbExchangeRate] = useState<number>(92.1);
+  const [sbExchangeRate, setSbExchangeRate] = useState<number | ''>('');
   const [fobValueInr, setFobValueInr] = useState<number | ''>('');
   const [blNumber, setBlNumber] = useState('');
   const [blDate, setBlDate] = useState('');
   const [vesselName, setVesselName] = useState('');
   const [portCode, setPortCode] = useState('INMAA1');
   const [packageCount, setPackageCount] = useState<number | ''>('');
+
+  // Mandatory FIRC / Payment Linkage state
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [fircLinkMode, setFircLinkMode] = useState<'link' | 'create'>('create');
+  const [initialFircPaymentId, setInitialFircPaymentId] = useState('');
+  const [fircIrmNumber, setFircIrmNumber] = useState('');
+  const [fircAmountUsd, setFircAmountUsd] = useState<number | ''>('');
+  const [fircBankId, setFircBankId] = useState(banks[0]?.id || '');
+  const [fircValueDate, setFircValueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [fircCreditDate, setFircCreditDate] = useState(new Date().toISOString().split('T')[0]);
+  const [fircExchangeRate, setFircExchangeRate] = useState<number | ''>('');
+  const [fircInrAmount, setFircInrAmount] = useState<number | ''>('');
 
   // Extraction tracking state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -118,18 +128,25 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      const match = financialYears.find(
-        (f) => f.label.includes('2026') || f.id.includes('2026') || f.isCurrent
-      )?.id;
-      setFyId(match || selectedFyId || 'fy-2026-27');
+      const match = financialYears.find((f) => f.isCurrent)?.id || selectedFyId || financialYears[0]?.id || '';
+      setFyId(match);
       if (consignees[0]?.id && !consigneeId) {
         setConsigneeId(consignees[0].id);
       }
       if (banks[0]?.id && !bankId) {
         setBankId(banks[0].id);
       }
+      if (banks[0]?.id && !fircBankId) {
+        setFircBankId(banks[0].id);
+      }
+      void api
+        .getPayments()
+        .then((list) => {
+          setPayments(list);
+        })
+        .catch(() => setPayments([]));
     }
-  }, [isOpen, financialYears, selectedFyId, consignees, banks, consigneeId, bankId]);
+  }, [isOpen, financialYears, selectedFyId, consignees, banks, consigneeId, bankId, fircBankId]);
 
   useEffect(() => {
     if (!invoiceNumber.trim()) {
@@ -159,12 +176,13 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
   }, [invoiceNumber, fyId]);
 
   useEffect(() => {
-    if (typeof invoiceValueUsd === 'number' && invoiceValueUsd > 0) {
-      const rate = typeof sbExchangeRate === 'number' && sbExchangeRate > 0 ? sbExchangeRate : 92.1;
-      const calcFob = Math.round(invoiceValueUsd * rate * 100) / 100;
+    if (typeof invoiceValueUsd === 'number' && invoiceValueUsd > 0 && typeof sbExchangeRate === 'number' && sbExchangeRate > 0) {
+      const calcFob = Math.round(invoiceValueUsd * sbExchangeRate * 100) / 100;
       setFobValueInr(calcFob);
     }
   }, [invoiceValueUsd, sbExchangeRate]);
+
+  const activeFyTag = getShortFyTag(financialYears.find((f) => f.id === fyId)?.label);
 
   const handleSuggestNextInvoice = async () => {
     try {
@@ -179,9 +197,9 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
       }
       const nextNum = maxNum > 0 ? maxNum + 1 : 1;
       const padded = String(nextNum).padStart(3, '0');
-      setInvoiceNumber(`SKE/26-27/${padded}`);
+      setInvoiceNumber(`SKE/${activeFyTag}/${padded}`);
     } catch {
-      setInvoiceNumber('SKE/26-27/271');
+      setInvoiceNumber(`SKE/${activeFyTag}/001`);
     }
   };
 
@@ -189,7 +207,7 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
     const trimmed = raw.trim();
     if (/^\d+$/.test(trimmed)) {
       const padded = trimmed.padStart(3, '0');
-      setInvoiceNumber(`SKE/26-27/${padded}`);
+      setInvoiceNumber(`SKE/${activeFyTag}/${padded}`);
     } else {
       setInvoiceNumber(raw);
     }
@@ -201,7 +219,7 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
     setShippingBillNumber('');
     setShippingBillDate(new Date().toISOString().split('T')[0]);
     setInvoiceValueUsd('');
-    setSbExchangeRate(92.1);
+    setSbExchangeRate('');
     setFobValueInr('');
     setBlNumber('');
     setBlDate('');
@@ -209,6 +227,11 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
     setRemarks('');
     setPortCode('INMAA1');
     setPackageCount('');
+    setInitialFircPaymentId('');
+    setFircIrmNumber('');
+    setFircAmountUsd('');
+    setFircExchangeRate('');
+    setFircInrAmount('');
     setInvoiceFile(null);
     setSbFile(null);
     setBlFile(null);
@@ -333,8 +356,28 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
           );
           if (matchBank) {
             setBankId(matchBank.id);
+            setFircBankId(matchBank.id);
             sources.bankId = `Matched: ${matchBank.name}`;
           }
+        }
+        if (draft.irmNumber) {
+          setFircIrmNumber(draft.irmNumber);
+          setFircLinkMode('create');
+        }
+        if (typeof draft.fircAmountUsd === 'number' && draft.fircAmountUsd > 0) {
+          setFircAmountUsd(draft.fircAmountUsd);
+        } else if (typeof draft.invoiceValueUsd === 'number' && draft.invoiceValueUsd > 0 && !fircAmountUsd) {
+          setFircAmountUsd(draft.invoiceValueUsd);
+        }
+        if (typeof draft.fircExchangeRate === 'number' && draft.fircExchangeRate > 0) {
+          setFircExchangeRate(draft.fircExchangeRate);
+        }
+        if (typeof draft.fircInrAmount === 'number' && draft.fircInrAmount > 0) {
+          setFircInrAmount(draft.fircInrAmount);
+        }
+        if (draft.fircCreditDate) {
+          setFircCreditDate(draft.fircCreditDate);
+          setFircValueDate(draft.fircCreditDate);
         }
 
         setExtractedSources(sources);
@@ -435,7 +478,7 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
       const nameParts = file.name.replace(/\.[^/.]+$/, '').split(/[-_ ]+/);
       const possibleNum = nameParts.find((p) => /\d{2,}/.test(p));
       if (possibleNum) {
-        setInvoiceNumber(`SKE/26-27/${possibleNum.padStart(3, '0')}`);
+        setInvoiceNumber(`SKE/${activeFyTag}/${possibleNum.padStart(3, '0')}`);
       }
     }
 
@@ -477,6 +520,33 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
       return;
     }
 
+    if (!consigneeId) {
+      setError('Please select a Consignee / Buyer.');
+      return;
+    }
+
+    if (typeof invoiceValueUsd !== 'number' || invoiceValueUsd <= 0) {
+      setError('Invoice Value (USD) must be greater than 0.');
+      return;
+    }
+
+    if (typeof sbExchangeRate !== 'number' || sbExchangeRate <= 0) {
+      setError('Customs Exchange Rate (INR/USD) must be greater than 0.');
+      return;
+    }
+
+    if (fircLinkMode === 'link') {
+      if (!initialFircPaymentId) {
+        setError('Mandatory FIRC rule: Please select an existing verified FIRC payment to link.');
+        return;
+      }
+    } else {
+      if (!fircIrmNumber.trim() || typeof fircAmountUsd !== 'number' || fircAmountUsd <= 0 || !(fircBankId || bankId)) {
+        setError('Mandatory FIRC rule: Please provide IRM Number, positive FIRC Amount (USD), and AD Bank.');
+        return;
+      }
+    }
+
     setSubmitting(true);
     setSubmitProgressText('Creating shipment record & uploading documents...');
 
@@ -490,16 +560,28 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
       if (consigneeId) formData.append('consigneeId', consigneeId);
       if (bankId) formData.append('bankId', bankId);
       if (invoiceDate) formData.append('invoiceDate', invoiceDate);
-      if (invoiceValueUsd !== '') formData.append('invoiceValueUsd', String(invoiceValueUsd));
+      formData.append('invoiceValueUsd', String(invoiceValueUsd));
       if (shippingBillNumber.trim()) formData.append('shippingBillNumber', shippingBillNumber.trim());
       if (shippingBillDate) formData.append('shippingBillDate', shippingBillDate);
-      if (sbExchangeRate) formData.append('sbExchangeRate', String(sbExchangeRate));
+      formData.append('sbExchangeRate', String(sbExchangeRate));
       if (fobValueInr !== '') formData.append('fobValueInr', String(fobValueInr));
       if (blNumber.trim()) formData.append('blNumber', blNumber.trim());
       if (blDate) formData.append('blDate', blDate);
       if (vesselName.trim()) formData.append('vesselName', vesselName.trim());
       if (portCode.trim()) formData.append('portCode', portCode.trim());
       if (packageCount !== '') formData.append('packageCount', String(packageCount));
+
+      if (fircLinkMode === 'link') {
+        formData.append('initialFircPaymentId', initialFircPaymentId);
+      } else {
+        formData.append('fircIrmNumber', fircIrmNumber.trim());
+        formData.append('fircAmountUsd', String(fircAmountUsd));
+        formData.append('fircBankId', fircBankId || bankId);
+        if (fircValueDate) formData.append('fircValueDate', fircValueDate);
+        if (fircCreditDate) formData.append('fircCreditDate', fircCreditDate);
+        if (fircExchangeRate !== '') formData.append('fircExchangeRate', String(fircExchangeRate));
+        if (fircInrAmount !== '') formData.append('fircInrAmount', String(fircInrAmount));
+      }
 
       if (invoiceFile?.file) formData.append('invoiceDoc', invoiceFile.file);
       if (sbFile?.file) formData.append('shippingBillDoc', sbFile.file);
@@ -621,7 +703,7 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
                     Financial Year <span className="text-red-500">*</span>
                   </span>
                   <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                    Default 2026-2027
+                    Active FY {financialYears.find((f) => f.id === fyId)?.label || activeFyTag}
                   </span>
                 </label>
                 <select
@@ -875,7 +957,144 @@ export const NewShipmentModal: React.FC<NewShipmentModalProps> = ({
             />
           </div>
 
-          {/* SECTION 4: COMMERCIAL DETAILS */}
+          {/* SECTION 4: MANDATORY FIRC / PAYMENT LINKAGE */}
+          <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4.5 space-y-3.5 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200 pb-2.5">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                  <DollarSign size={14} className="text-emerald-700" />
+                  <span>4. Mandatory FIRC / Payment Linkage</span>
+                </h3>
+                <p className="text-[11px] text-emerald-800/80 mt-0.5">
+                  Every export shipment must link to an existing verified FIRC payment or create a new FIRC remittance record (an uploaded FIRC file alone is insufficient).
+                </p>
+              </div>
+              <div className="inline-flex rounded-lg border border-emerald-300 bg-white p-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setFircLinkMode('create')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                    fircLinkMode === 'create' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  New FIRC Record
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFircLinkMode('link')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                    fircLinkMode === 'link' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Link Existing ({payments.filter((p) => (p.availableBalanceUsd ?? p.verifiedAmount) > 0).length})
+                </button>
+              </div>
+            </div>
+
+            {fircLinkMode === 'link' ? (
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  Select Existing Verified FIRC Payment <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={initialFircPaymentId}
+                  onChange={(e) => setInitialFircPaymentId(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 bg-white text-xs font-medium"
+                >
+                  <option value="">-- Choose Verified FIRC / IRM Payment --</option>
+                  {payments
+                    .filter((p) => (p.availableBalanceUsd ?? p.verifiedAmount) > 0)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.irmNumber} • {p.bankName || 'Bank'} • Available: ${(p.availableBalanceUsd ?? p.verifiedAmount).toLocaleString()} (of ${p.verifiedAmount.toLocaleString()})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    FIRC / IRM Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={fircIrmNumber}
+                    onChange={(e) => setFircIrmNumber(e.target.value)}
+                    placeholder="e.g. IRM-2026-0041"
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white font-semibold text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    FIRC Amount (USD) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={fircAmountUsd}
+                    onChange={(e) => setFircAmountUsd(e.target.value ? parseFloat(e.target.value) : '')}
+                    placeholder="e.g. 24025.65"
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white font-semibold text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Remittance Bank <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={fircBankId}
+                    onChange={(e) => setFircBankId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-xs font-medium"
+                  >
+                    <option value="">-- Select AD Bank --</option>
+                    {banks.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Credit Date</label>
+                  <input
+                    type="date"
+                    value={fircCreditDate}
+                    onChange={(e) => {
+                      setFircCreditDate(e.target.value);
+                      if (!fircValueDate) setFircValueDate(e.target.value);
+                    }}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">FIRC FX Rate (Optional)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={fircExchangeRate}
+                    onChange={(e) => setFircExchangeRate(e.target.value ? parseFloat(e.target.value) : '')}
+                    placeholder="e.g. 85.75"
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">FIRC INR Amount (Optional)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={fircInrAmount}
+                    onChange={(e) => setFircInrAmount(e.target.value ? parseFloat(e.target.value) : '')}
+                    placeholder="Auto-calculated if FX given"
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white text-xs"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SECTION 5: COMMERCIAL DETAILS */}
           <CommercialDetailsSection
             showOptionalDetails={showOptionalDetails}
             onToggle={() => setShowOptionalDetails(!showOptionalDetails)}

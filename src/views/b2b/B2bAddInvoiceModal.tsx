@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Check, AlertCircle, Building2, FileText, Calculator, ShieldCheck, Hash } from 'lucide-react';
 import { api } from '../../api/client.ts';
 import type { B2bInvoice, Supplier } from '../../types/index.ts';
+import { getDefaultGstrPeriodLabel, isValidGstin, normalizeGstin } from '../../shared/utils/normalizer.ts';
 
 interface B2bAddInvoiceModalProps {
   isOpen: boolean;
@@ -30,15 +31,15 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
   // Form states
   const [supplierGstin, setSupplierGstin] = useState('');
   const [supplierName, setSupplierName] = useState('');
-  const [placeOfSupply, setPlaceOfSupply] = useState('33-Tamil Nadu');
+  const [placeOfSupply, setPlaceOfSupply] = useState('');
 
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [invoiceType, setInvoiceType] = useState('Regular');
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [gstrPeriod, setGstrPeriod] = useState(defaultPeriodKey || 'August 2026');
+  const [gstrPeriod, setGstrPeriod] = useState(defaultPeriodKey || getDefaultGstrPeriodLabel());
 
   const [taxableValue, setTaxableValue] = useState<number | ''>(0);
-  const [applicableTaxRate, setApplicableTaxRate] = useState<number>(100);
+  const [applicableTaxRate, setApplicableTaxRate] = useState<number | ''>('');
   const [integratedTax, setIntegratedTax] = useState<number | ''>(0);
   const [centralTax, setCentralTax] = useState<number | ''>(0);
   const [stateUtTax, setStateUtTax] = useState<number | ''>(0);
@@ -49,7 +50,7 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
   const [reason, setReason] = useState('');
   const [reverseCharge, setReverseCharge] = useState<'N' | 'Y'>('N');
   const [filingDate, setFilingDate] = useState('');
-  const [source, setSource] = useState('GSTR-1');
+  const [source, setSource] = useState('');
 
   const [irn, setIrn] = useState('');
   const [irnDate, setIrnDate] = useState('');
@@ -73,23 +74,27 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
     if (initialData) {
       setSupplierGstin(initialData.supplierGstin || '');
       setSupplierName(initialData.supplierName || '');
-      setPlaceOfSupply(initialData.placeOfSupply || '33-Tamil Nadu');
+      setPlaceOfSupply(initialData.placeOfSupply || '');
       setInvoiceNumber(initialData.invoiceNumber || '');
       setInvoiceType(initialData.invoiceType || 'Regular');
       setInvoiceDate(initialData.invoiceDate || new Date().toISOString().split('T')[0]);
-      setGstrPeriod(initialData.gstrPeriod || defaultPeriodKey || 'August 2026');
-      setTaxableValue(initialData.taxableValue || 0);
-      setApplicableTaxRate(initialData.applicableTaxRate ?? 100);
-      setIntegratedTax(initialData.integratedTax || 0);
-      setCentralTax(initialData.centralTax || 0);
-      setStateUtTax(initialData.stateUtTax || 0);
-      setCess(initialData.cess || 0);
-      setInvoiceValue(initialData.invoiceValue || 0);
+      setGstrPeriod(initialData.gstrPeriod || defaultPeriodKey || getDefaultGstrPeriodLabel());
+      setTaxableValue(initialData.taxableValue ?? 0);
+      setApplicableTaxRate(
+        initialData.applicableTaxRate !== undefined && initialData.applicableTaxRate !== null
+          ? initialData.applicableTaxRate
+          : ''
+      );
+      setIntegratedTax(initialData.integratedTax ?? 0);
+      setCentralTax(initialData.centralTax ?? 0);
+      setStateUtTax(initialData.stateUtTax ?? 0);
+      setCess(initialData.cess ?? 0);
+      setInvoiceValue(initialData.invoiceValue ?? 0);
       setItcAvailability(initialData.itcAvailability === 'No' ? 'No' : 'Yes');
       setReason(initialData.reason || '');
       setReverseCharge(initialData.reverseCharge === 'Y' ? 'Y' : 'N');
       setFilingDate(initialData.filingDate || '');
-      setSource(initialData.source || 'GSTR-1');
+      setSource(initialData.source || '');
       setIrn(initialData.irn || '');
       setIrnDate(initialData.irnDate || '');
     } else {
@@ -102,13 +107,13 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
   const resetForm = () => {
     setSupplierGstin('');
     setSupplierName('');
-    setPlaceOfSupply('33-Tamil Nadu');
+    setPlaceOfSupply('');
     setInvoiceNumber('');
     setInvoiceType('Regular');
     setInvoiceDate(new Date().toISOString().split('T')[0]);
-    setGstrPeriod(defaultPeriodKey || 'August 2026');
+    setGstrPeriod(defaultPeriodKey || getDefaultGstrPeriodLabel());
     setTaxableValue(0);
-    setApplicableTaxRate(100);
+    setApplicableTaxRate('');
     setIntegratedTax(0);
     setCentralTax(0);
     setStateUtTax(0);
@@ -118,18 +123,18 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
     setReason('');
     setReverseCharge('N');
     setFilingDate('');
-    setSource('GSTR-1');
+    setSource('');
     setIrn('');
     setIrnDate('');
   };
 
   const handleSupplierGstinChange = (val: string) => {
-    const clean = val.toUpperCase().trim();
+    const clean = normalizeGstin(val);
     setSupplierGstin(clean);
     const matched = suppliers.find((s) => s.gstin.toUpperCase() === clean);
     if (matched) {
       setSupplierName(matched.legalName);
-      if (matched.state) setPlaceOfSupply(`33-${matched.state}`);
+      if (matched.state && !placeOfSupply.trim()) setPlaceOfSupply(matched.state);
     }
   };
 
@@ -160,8 +165,9 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!supplierGstin || supplierGstin.length !== 15) {
-      setError('Please provide a valid 15-character Supplier GSTIN.');
+    const cleanGstin = normalizeGstin(supplierGstin);
+    if (!isValidGstin(cleanGstin)) {
+      setError('Please provide a valid 15-character Supplier GSTIN (e.g., 33AAACH2748P1ZP).');
       return;
     }
     if (!supplierName.trim()) {
@@ -184,15 +190,15 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
     setSubmitting(true);
     try {
       const payload = {
-        supplierGstin: supplierGstin.toUpperCase().trim(),
+        supplierGstin: cleanGstin,
         supplierName: supplierName.trim(),
-        placeOfSupply: placeOfSupply.trim(),
+        placeOfSupply: placeOfSupply.trim() || undefined,
         invoiceNumber: invoiceNumber.trim(),
         invoiceType,
         invoiceDate,
         gstrPeriod: gstrPeriod.trim(),
         taxableValue: Number(taxableValue) || 0,
-        applicableTaxRate,
+        applicableTaxRate: applicableTaxRate === '' ? undefined : Number(applicableTaxRate),
         integratedTax: Number(integratedTax) || 0,
         centralTax: Number(centralTax) || 0,
         stateUtTax: Number(stateUtTax) || 0,
@@ -202,7 +208,7 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
         reason: reason.trim() || undefined,
         reverseCharge,
         filingDate: filingDate || undefined,
-        source: source.trim() || 'GSTR-1',
+        source: source.trim() || undefined,
         irn: irn.trim() || undefined,
         irnDate: irnDate || undefined,
       };
@@ -415,7 +421,10 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
                   min="0"
                   max="100"
                   value={applicableTaxRate}
-                  onChange={(e) => setApplicableTaxRate(parseFloat(e.target.value) || 100)}
+                  placeholder="Optional"
+                  onChange={(e) =>
+                    setApplicableTaxRate(e.target.value === '' ? '' : parseFloat(e.target.value))
+                  }
                   className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
@@ -550,6 +559,7 @@ export const B2bAddInvoiceModal: React.FC<B2bAddInvoiceModalProps> = ({
                   onChange={(e) => setSource(e.target.value)}
                   className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 >
+                  <option value="">Unspecified / Blank</option>
                   <option value="GSTR-1">GSTR-1</option>
                   <option value="GSTR-1/IFF">GSTR-1/IFF</option>
                   <option value="GSTR-5">GSTR-5</option>

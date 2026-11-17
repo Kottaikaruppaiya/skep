@@ -123,8 +123,8 @@ export const QuickView: React.FC<QuickViewProps> = ({
       else pendingCount++;
 
       // Realised INR and Forex Gain/Loss
-      const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 92.1;
-      const realisedInr = s.realisedInr || totalPaid * realisedRate;
+      const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 0;
+      const realisedInr = s.realisedInr ?? (totalPaid * realisedRate);
       const fobInr = s.fobValueInr || 0;
       if (bal === 0 && totalPaid > 0) {
         totalNetForexInr += (realisedInr - fobInr);
@@ -629,10 +629,10 @@ export const QuickView: React.FC<QuickViewProps> = ({
                   }
 
                   // Realised INR & Forex live recalculation
-                  const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 92.1;
-                  const realisedInr = s.realisedInr || totalPaid * realisedRate;
+                  const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 0;
+                  const realisedInr = s.realisedInr ?? (totalPaid * realisedRate);
                   const currentFobInr = isEditingThisRow && editFormData
-                    ? Math.round(currentInvUsd * (s.sbExchangeRate || 92.1) * 100) / 100
+                    ? Math.round(currentInvUsd * (s.sbExchangeRate || 0) * 100) / 100
                     : s.fobValueInr;
                   const netForexInr = balUsd === 0 && totalPaid > 0 ? realisedInr - currentFobInr : 0;
 
@@ -652,21 +652,22 @@ export const QuickView: React.FC<QuickViewProps> = ({
 
                   // BRC
                   const brc = s.brcRecord;
-                  const isBrcRealised = brc?.status === 'REALISED' || Boolean(brc?.brcNumber);
+                  const isBrcRealised = brc?.status === 'REALISED';
                   const brcDeadlineDisplay = isEditingThisRow && editFormData
                     ? editFormData.brcDeadline
                     : brc?.statutoryDeadline;
                   const isBrcOverdue =
-                    !isBrcRealised &&
-                    brcDeadlineDisplay &&
-                    new Date(brcDeadlineDisplay).getTime() < Date.now();
+                    brc?.status === 'OVERDUE' ||
+                    (!isBrcRealised &&
+                      brcDeadlineDisplay &&
+                      new Date(brcDeadlineDisplay).getTime() < Date.now());
 
                   // Days pending calculation
                   let receivedOnText = 'Pending';
-                  if (s.allocations && s.allocations.length > 0 && s.allocations[0].allocatedAt) {
-                    receivedOnText = s.allocations[0].allocatedAt.split('T')[0];
-                  } else if (derivedStatus === 'FULLY_PAID') {
-                    receivedOnText = s.invoiceDate;
+                  if (s.allocations && s.allocations.length > 0) {
+                    receivedOnText =
+                      s.allocations[0].paymentCreditDate ||
+                      (s.allocations[0].allocatedAt ? s.allocations[0].allocatedAt.split('T')[0] : 'Settled');
                   } else if (s.shippingBillDate) {
                     const daysAgo = Math.floor(
                       (Date.now() - new Date(s.shippingBillDate).getTime()) / (1000 * 60 * 60 * 24)

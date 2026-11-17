@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ForbiddenError } from '../shared/errors/app-error.ts';
+import { getCurrentIndianFinancialYearLabel } from '../shared/utils/gstr-period.ts';
 
 export function getStorageDir(): string {
   const dir = process.env.STORAGE_ROOT ? path.resolve(process.env.STORAGE_ROOT) : path.resolve('storage');
@@ -33,10 +34,11 @@ export function sanitizePathSegment(segment: string): string {
 
 /**
  * Ensures any read/write path remains strictly inside STORAGE_ROOT.
- * Prevents path traversal and prohibits access outside private storage.
+ * Resolves symlinks where targets or parent directories exist to prevent escape.
  */
 export function resolveSafeStoragePath(storedPath: string): string {
   const storageRoot = getStorageDir();
+  const realRoot = fs.existsSync(storageRoot) ? fs.realpathSync(storageRoot) : storageRoot;
   const candidate = path.isAbsolute(storedPath)
     ? path.resolve(storedPath)
     : path.resolve(process.cwd(), storedPath);
@@ -46,7 +48,22 @@ export function resolveSafeStoragePath(storedPath: string): string {
     throw new ForbiddenError('Access denied: document path is outside permitted storage boundaries.');
   }
 
-  return candidate;
+  let resolvedTarget = candidate;
+  if (fs.existsSync(candidate)) {
+    resolvedTarget = fs.realpathSync(candidate);
+  } else {
+    const parentDir = path.dirname(candidate);
+    if (fs.existsSync(parentDir)) {
+      resolvedTarget = path.join(fs.realpathSync(parentDir), path.basename(candidate));
+    }
+  }
+
+  const realRelative = path.relative(realRoot, resolvedTarget);
+  if (!realRelative || realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+    throw new ForbiddenError('Access denied: document path escapes permitted storage boundaries.');
+  }
+
+  return resolvedTarget;
 }
 
 export function buildDocumentStoragePath(
@@ -56,7 +73,8 @@ export function buildDocumentStoragePath(
   originalFilename: string
 ): { absolutePath: string; relativePath: string } {
   const storageRoot = getStorageDir();
-  const safeYear = `FY${sanitizePathSegment(financialYearLabel || '2026-27')}`;
+  const fyLabel = financialYearLabel || getCurrentIndianFinancialYearLabel();
+  const safeYear = `FY${sanitizePathSegment(fyLabel)}`;
   const safeKey = sanitizePathSegment(normalizedInvoiceKey || 'GENERAL');
   const targetDir = path.resolve(storageRoot, safeYear, safeKey);
 

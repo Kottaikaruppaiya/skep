@@ -186,6 +186,23 @@ export const paymentsRepository = {
     await db.payment.delete({ where: { id } });
   },
 
+  async lockPaymentById(
+    paymentId: string,
+    db: DbClient
+  ): Promise<{ id: string; irmNumber: string; verifiedAmount: number } | null> {
+    const paymentRows = await db.$queryRaw<
+      Array<{ id: string; irmNumber: string; verifiedAmount: any }>
+    >`SELECT id, "irmNumber", "verifiedAmount" FROM "Payment" WHERE id = ${paymentId} FOR UPDATE`;
+
+    return paymentRows[0]
+      ? {
+          id: paymentRows[0].id,
+          irmNumber: paymentRows[0].irmNumber,
+          verifiedAmount: toNumber(paymentRows[0].verifiedAmount),
+        }
+      : null;
+  },
+
   /**
    * Acquires PostgreSQL row-level FOR UPDATE locks on both Payment and Shipment
    * inside a transaction to prevent concurrent over-allocation races.

@@ -101,13 +101,14 @@ export const shipmentsService = {
     return { normalizedQueryKey, matches };
   },
 
-  async checkUniqueInvoice(invoiceNumber: string, financialYearId = 'fy-2026-27') {
+  async checkUniqueInvoice(invoiceNumber: string, financialYearId?: string) {
     const cleanInv = invoiceNumber.trim();
     if (!cleanInv) {
       return { isUnique: true, normalizedKey: '', existingInvoiceNumber: null };
     }
+    const fyId = financialYearId?.trim() || (await mastersService.getCurrentFinancialYear()).id;
     const normalizedKey = normalizeInvoiceKey(cleanInv);
-    const existing = await shipmentsRepository.findByNormalizedKey(normalizedKey, financialYearId);
+    const existing = await shipmentsRepository.findByNormalizedKey(normalizedKey, fyId);
     return {
       isUnique: !existing,
       normalizedKey,
@@ -117,7 +118,32 @@ export const shipmentsService = {
 
   async createShipmentWithTx(tx: DbClient, data: CreateShipmentInput, actorUserId: string): Promise<Shipment> {
     const normalizedKey = normalizeInvoiceKey(data.invoiceNumber);
-    const fyId = data.financialYearId || (await mastersService.getCurrentFinancialYear(tx)).id;
+    let fyId: string;
+    if (data.financialYearId && data.financialYearId.trim()) {
+      const fy = await mastersService.getFinancialYearById(data.financialYearId.trim(), tx);
+      if (!fy) {
+        throw new NotFoundError(`Financial Year '${data.financialYearId}' not found.`);
+      }
+      fyId = fy.id;
+    } else {
+      fyId = (await mastersService.getCurrentFinancialYear(tx)).id;
+    }
+
+    const invVal = round2(data.invoiceValueUsd);
+    if (!Number.isFinite(invVal) || invVal <= 0) {
+      throw new ValidationError('Invoice Value (USD) must be greater than zero.');
+    }
+
+    const exRate = Number(data.sbExchangeRate);
+    if (!Number.isFinite(exRate) || exRate <= 0) {
+      throw new ValidationError('Customs Exchange Rate (sbExchangeRate) must be greater than zero.');
+    }
+
+    if (!data.initialFircPaymentId || !data.initialFircPaymentId.trim()) {
+      throw new ValidationError(
+        'Mandatory Rule Violation: A valid linked FIRC / inward remittance payment record (initialFircPaymentId) is required before creating a shipment.'
+      );
+    }
 
     const duplicate = await shipmentsRepository.findByNormalizedKey(normalizedKey, fyId, tx);
     if (duplicate) {
@@ -136,8 +162,6 @@ export const shipmentsService = {
     );
 
     const today = new Date().toISOString().split('T')[0];
-    const invVal = round2(data.invoiceValueUsd || 0);
-    const exRate = Number(data.sbExchangeRate || 84.5);
     const fobVal =
       data.fobValueInr !== undefined && data.fobValueInr > 0
         ? round2(data.fobValueInr)
@@ -176,7 +200,7 @@ export const shipmentsService = {
         ['ROSCTL', data.incentives.rosctlClaimed],
       ];
       for (const [type, amount] of incentivePairs) {
-        if (amount !== undefined && amount >= 0) {
+        if (amount !== undefined && amount > 0) {
           await incentivesService.createIncentive(
             { shipmentId: created.id, type, claimedAmount: amount },
             tx
@@ -195,22 +219,25 @@ export const shipmentsService = {
       tx
     );
 
-    // Handle optional initial FIRC payment allocation
-    if (data.initialFircPaymentId) {
-      const allocAmount = data.initialFircAllocationAmount || invVal;
-      if (allocAmount > 0) {
-        await allocationService.allocateWithTx(
-          tx,
-          {
-            paymentId: data.initialFircPaymentId,
-            shipmentId: created.id,
-            allocatedAmountUsd: allocAmount,
-            notes: 'Initial allocation on shipment creation',
-          },
-          actorUserId
-        );
-      }
+    // Mandatory FIRC payment allocation
+    const allocAmount =
+      data.initialFircAllocationAmount !== undefined
+        ? round2(data.initialFircAllocationAmount)
+        : invVal;
+    if (!Number.isFinite(allocAmount) || allocAmount <= 0) {
+      throw new ValidationError('Initial FIRC allocation amount must be greater than zero.');
     }
+
+    await allocationService.allocateWithTx(
+      tx,
+      {
+        paymentId: data.initialFircPaymentId.trim(),
+        shipmentId: created.id,
+        allocatedAmountUsd: allocAmount,
+        notes: 'Initial allocation on shipment creation',
+      },
+      actorUserId
+    );
 
     const hydrated = await shipmentsRepository.findById(created.id, tx);
     return hydrated!;
@@ -231,7 +258,7 @@ export const shipmentsService = {
     }
 
     const {
-      financialYearId = 'fy-2026-27',
+      financialYearId,
       invoiceDate,
       consigneeId: rawConsigneeId,
       consigneeName,
@@ -255,6 +282,8 @@ export const shipmentsService = {
       brcRealisationDate,
       brcRealisedAmount,
       statutoryDeadline,
+      initialFircPaymentId,
+      initialFircAllocationAmount,
       fircIrmNumber,
       fircSenderRef,
       fircAmountUsd,
@@ -262,16 +291,9 @@ export const shipmentsService = {
       fircInrAmount,
       fircValueDate,
       fircCreditDate,
+      fircBankId,
       fircBankName,
     } = body;
-
-    // Mandatory Rule: Require FIRC/payment linkage before saving a shipment
-    const hasFircEvidence = Boolean(files?.fircDoc?.[0] || fircIrmNumber);
-    if (!hasFircEvidence) {
-      throw new ValidationError(
-        'Mandatory Rule Violation: A valid FIRC/payment document or IRM reference must be linked before saving a shipment.'
-      );
-    }
 
     // Mandatory Rule: BRC Mode validation
     if (brcUploadMode === 'SINGLE' && files?.brcDoc2?.[0]) {
@@ -306,8 +328,27 @@ export const shipmentsService = {
       }
     }
 
-    const invVal = Number(invoiceValueUsd || extractions.invoiceDoc?.fields?.invoiceValueUsd?.value || 0);
-    const exRate = Number(sbExchangeRate || extractions.shippingBillDoc?.fields?.sbExchangeRate?.value || 92.1);
+    const invVal = round2(Number(invoiceValueUsd ?? extractions.invoiceDoc?.fields?.invoiceValueUsd?.value ?? 0));
+    if (!Number.isFinite(invVal) || invVal <= 0) {
+      throw new ValidationError('Invoice Value (USD) must be greater than zero.');
+    }
+
+    const rawRate = sbExchangeRate ?? extractions.shippingBillDoc?.fields?.sbExchangeRate?.value;
+    const exRate = Number(rawRate);
+    if (!Number.isFinite(exRate) || exRate <= 0) {
+      throw new ValidationError('Customs Exchange Rate (sbExchangeRate) must be provided and greater than zero.');
+    }
+
+    const resolvedFircId = typeof initialFircPaymentId === 'string' ? initialFircPaymentId.trim() : '';
+    const finalIrmRaw = fircIrmNumber || extractions.fircDoc?.fields?.irmNumber?.value || '';
+    const finalIrm = String(finalIrmRaw).trim().toUpperCase();
+
+    if (!resolvedFircId && !finalIrm) {
+      throw new ValidationError(
+        'Mandatory Rule Violation: A linked FIRC payment record (initialFircPaymentId) or valid FIRC IRM reference with payment details is required before saving a shipment. Uploading a file alone is insufficient.'
+      );
+    }
+
     const fobVal = Number(
       fobValueInr || extractions.shippingBillDoc?.fields?.fobValueInr?.value || calculateFobInr(invVal, exRate)
     );
@@ -331,6 +372,80 @@ export const shipmentsService = {
 
     try {
       return await withTransaction(async (tx) => {
+        // Resolve or create the mandatory FIRC payment record first
+        let payment = resolvedFircId ? await paymentsService.getPaymentById(resolvedFircId, tx) : null;
+        if (resolvedFircId && !payment) {
+          throw new NotFoundError(`Linked FIRC payment '${resolvedFircId}' not found.`);
+        }
+
+        if (!payment && finalIrm) {
+          payment = await paymentsService.findByIrmNumber(finalIrm, tx);
+          if (!payment) {
+            const fircAmt = round2(Number(fircAmountUsd ?? extractions.fircDoc?.fields?.verifiedAmount?.value ?? 0));
+            if (!Number.isFinite(fircAmt) || fircAmt <= 0) {
+              throw new ValidationError(
+                'Mandatory Rule Violation: Creating a new FIRC payment requires a positive Verified Remittance Amount (USD).'
+              );
+            }
+            const bankId = await mastersService.resolveBankId(
+              fircBankId ? String(fircBankId).trim() : undefined,
+              fircBankName
+                ? String(fircBankName).trim()
+                : (extractions.fircDoc?.fields?.bankName?.value as string | undefined),
+              tx
+            );
+            const rawFircRate = fircExchangeRate ?? extractions.fircDoc?.fields?.exchangeRate?.value;
+            const parsedFircRate = rawFircRate !== undefined && rawFircRate !== null && rawFircRate !== '' ? Number(rawFircRate) : undefined;
+            const fircRate = parsedFircRate && Number.isFinite(parsedFircRate) && parsedFircRate > 0 ? parsedFircRate : undefined;
+
+            const rawFircInr = fircInrAmount ?? extractions.fircDoc?.fields?.inrAmount?.value;
+            const parsedFircInr = rawFircInr !== undefined && rawFircInr !== null && rawFircInr !== '' ? Number(rawFircInr) : undefined;
+            const fircInr =
+              parsedFircInr && Number.isFinite(parsedFircInr) && parsedFircInr > 0
+                ? parsedFircInr
+                : fircRate
+                  ? calculateFobInr(fircAmt, fircRate)
+                  : undefined;
+
+            payment = await paymentsService.createPayment(
+              {
+                irmNumber: finalIrm,
+                senderReference:
+                  fircSenderRef ||
+                  (extractions.fircDoc?.fields?.senderReference?.value as string | undefined) ||
+                  undefined,
+                currency: 'USD',
+                verifiedAmount: fircAmt,
+                inrAmount: fircInr,
+                exchangeRate: fircRate,
+                valueDate: String(fircValueDate || extractions.fircDoc?.fields?.valueDate?.value || invDate),
+                creditDate: String(fircCreditDate || extractions.fircDoc?.fields?.creditDate?.value || invDate),
+                fircIssueDate: String(fircCreditDate || extractions.fircDoc?.fields?.creditDate?.value || invDate),
+                bankId,
+                purposeCode: 'P0103',
+                remarks: `Payment for invoice ${invoiceNumber}`,
+              },
+              tx
+            );
+          }
+        }
+
+        if (!payment) {
+          throw new ValidationError('Mandatory Rule Violation: A valid FIRC payment record is required.');
+        }
+
+        const availableOnPayment = payment.availableBalanceUsd ?? payment.verifiedAmount;
+        const requestedAlloc =
+          initialFircAllocationAmount !== undefined && Number(initialFircAllocationAmount) > 0
+            ? round2(Number(initialFircAllocationAmount))
+            : Math.min(invVal, availableOnPayment);
+
+        if (requestedAlloc <= 0) {
+          throw new ValidationError(
+            `Linked FIRC payment '${payment.irmNumber}' has insufficient available balance ($${availableOnPayment.toFixed(2)}) to allocate to this shipment.`
+          );
+        }
+
         const shipment = await this.createShipmentWithTx(
           tx,
           {
@@ -350,7 +465,8 @@ export const shipmentsService = {
             blDate: resolvedBlDate ? String(resolvedBlDate) : undefined,
             vesselName: resolvedVessel ? String(resolvedVessel).trim() : undefined,
             remarks: remarks?.trim() || undefined,
-            initialFircDocumentUploaded: hasFircEvidence,
+            initialFircPaymentId: payment.id,
+            initialFircAllocationAmount: requestedAlloc,
             incentives: {
               dbkClaimed: Number(dbkClaimed || extractions.shippingBillDoc?.fields?.dbkClaimed?.value || 0),
               rodtepClaimed: Number(rodtepClaimed || extractions.shippingBillDoc?.fields?.rodtepClaimed?.value || 0),
@@ -368,59 +484,44 @@ export const shipmentsService = {
           actorUserId
         );
 
-        // Handle FIRC payment creation & allocation
-        const finalIrm = fircIrmNumber || extractions.fircDoc?.fields?.irmNumber?.value;
-        if (finalIrm) {
-          const cleanIrm = String(finalIrm).trim().toUpperCase();
-          let payment = await paymentsService.findByIrmNumber(cleanIrm, tx);
-          const fircAmt = Number(fircAmountUsd || extractions.fircDoc?.fields?.verifiedAmount?.value || invVal);
+        // Save physical files inside STORAGE_ROOT and register documents BEFORE updating BRC to REALISED
+        const fy = await mastersService.getFinancialYearById(shipment.financialYearId, tx);
+        const fyLabel = fy?.label || (await mastersService.getCurrentFinancialYear(tx)).label;
 
-          if (!payment && fircAmt > 0) {
-            const bankId = await mastersService.resolveBankId(undefined, fircBankName, tx);
-            const fircRate = Number(fircExchangeRate || extractions.fircDoc?.fields?.exchangeRate?.value || 93.28);
-            const fircInr = Number(
-              fircInrAmount || extractions.fircDoc?.fields?.inrAmount?.value || calculateFobInr(fircAmt, fircRate)
-            );
-            payment = await paymentsService.createPayment(
-              {
-                irmNumber: cleanIrm,
-                senderReference:
-                  fircSenderRef ||
-                  (extractions.fircDoc?.fields?.senderReference?.value as string | undefined) ||
-                  undefined,
-                currency: 'USD',
-                verifiedAmount: fircAmt,
-                inrAmount: fircInr,
-                exchangeRate: fircRate,
-                valueDate: String(fircValueDate || extractions.fircDoc?.fields?.valueDate?.value || invDate),
-                creditDate: String(fircCreditDate || extractions.fircDoc?.fields?.creditDate?.value || invDate),
-                fircIssueDate: String(fircCreditDate || extractions.fircDoc?.fields?.creditDate?.value || invDate),
-                bankId,
-                purposeCode: 'P0103',
-                remarks: `Payment for invoice ${invoiceNumber}`,
-              },
-              tx
-            );
-          }
+        for (const spec of fileSpecs) {
+          if (!spec.file) continue;
+          const { relativePath } = fileStorageService.writeDocumentFile(
+            fyLabel,
+            shipment.normalizedInvoiceKey,
+            spec.category,
+            spec.file.originalname,
+            spec.file.buffer
+          );
+          writtenPaths.push(relativePath);
 
-          if (payment) {
-            const allocAmount = Math.min(fircAmt, invVal, payment.availableBalanceUsd ?? fircAmt);
-            if (allocAmount > 0) {
-              await allocationService.allocateWithTx(
-                tx,
-                {
-                  paymentId: payment.id,
-                  shipmentId: shipment.id,
-                  allocatedAmountUsd: allocAmount,
-                  notes: `Auto-allocated on shipment creation (${invoiceNumber})`,
-                },
-                actorUserId
-              );
-            }
-          }
+          const ext = extractions[spec.key];
+          await documentsService.registerDocument(
+            {
+              shipmentId: shipment.id,
+              paymentId: spec.category === 'FIRC_PAYMENT' ? payment.id : undefined,
+              category: spec.category,
+              originalFilename: spec.file.originalname,
+              storedPath: relativePath,
+              mimeType: spec.file.mimetype,
+              fileSizeBytes: spec.file.size,
+              extractedData: ext,
+              reviewStatus: ext?.reviewStatus || 'CONFIRMED',
+              ocrApplied: ext?.ocrApplied || false,
+              ocrConfidence: ext?.ocrConfidence,
+              ocrTextPreview: ext?.ocrTextPreview,
+              extractionMethod: ext?.extractionMethod || 'PDF_TEXT',
+              uploadedByUserId: actorUserId,
+            },
+            tx
+          );
         }
 
-        // Handle BRC details if extracted/supplied
+        // Handle BRC details after documents are registered so SINGLE/MULTIPLE doc rules verify accurately
         const finalBrcNo =
           brcNumber ||
           extractions.brcDoc1?.fields?.brcNumber?.value ||
@@ -442,42 +543,6 @@ export const shipmentsService = {
           );
         }
 
-        // Save physical files inside STORAGE_ROOT and register documents
-        const fy = await mastersService.getFinancialYearById(shipment.financialYearId, tx);
-        const fyLabel = fy?.label || '2026-27';
-
-        for (const spec of fileSpecs) {
-          if (!spec.file) continue;
-          const { relativePath } = fileStorageService.writeDocumentFile(
-            fyLabel,
-            shipment.normalizedInvoiceKey,
-            spec.category,
-            spec.file.originalname,
-            spec.file.buffer
-          );
-          writtenPaths.push(relativePath);
-
-          const ext = extractions[spec.key];
-          await documentsService.registerDocument(
-            {
-              shipmentId: shipment.id,
-              category: spec.category,
-              originalFilename: spec.file.originalname,
-              storedPath: relativePath,
-              mimeType: spec.file.mimetype,
-              fileSizeBytes: spec.file.size,
-              extractedData: ext,
-              reviewStatus: ext?.reviewStatus || 'CONFIRMED',
-              ocrApplied: ext?.ocrApplied || false,
-              ocrConfidence: ext?.ocrConfidence,
-              ocrTextPreview: ext?.ocrTextPreview,
-              extractionMethod: ext?.extractionMethod || 'PDF_TEXT',
-              uploadedByUserId: actorUserId,
-            },
-            tx
-          );
-        }
-
         return (await shipmentsRepository.findById(shipment.id, tx))!;
       });
     } catch (err) {
@@ -489,15 +554,23 @@ export const shipmentsService = {
   },
 
   async updateShipmentWithTx(tx: DbClient, id: string, updates: Record<string, any>): Promise<Shipment> {
+    await shipmentsRepository.lockShipmentForUpdate(id, tx);
     const existing = await shipmentsRepository.findById(id, tx);
     if (!existing) throw new NotFoundError('Shipment not found.');
 
     const patch: Record<string, any> = {};
 
+    let targetFyId = existing.financialYearId;
+    if (updates.financialYearId !== undefined) {
+      const fy = await mastersService.getFinancialYearById(String(updates.financialYearId), tx);
+      if (!fy) throw new NotFoundError(`Financial Year '${updates.financialYearId}' not found.`);
+      patch.financialYearId = fy.id;
+      targetFyId = fy.id;
+    }
+
     if (updates.invoiceNumber && updates.invoiceNumber.trim() !== existing.invoiceNumber) {
       const newKey = normalizeInvoiceKey(updates.invoiceNumber);
-      const fyId = updates.financialYearId || existing.financialYearId;
-      const dup = await shipmentsRepository.findByNormalizedKey(newKey, fyId, tx);
+      const dup = await shipmentsRepository.findByNormalizedKey(newKey, targetFyId, tx);
       if (dup && dup.id !== id) {
         throw new ConflictError(`Another shipment with key '${newKey}' exists in this Financial Year.`);
       }
@@ -505,8 +578,9 @@ export const shipmentsService = {
       patch.normalizedInvoiceKey = newKey;
     }
 
-    if (updates.consigneeId) {
-      patch.consigneeId = updates.consigneeId;
+    if (updates.consigneeId !== undefined) {
+      const consignee = await mastersService.resolveOrCreateConsignee({ consigneeId: String(updates.consigneeId) }, tx);
+      patch.consigneeId = consignee.id;
     } else if (updates.consigneeName) {
       const consignee = await mastersService.resolveOrCreateConsignee(
         { consigneeName: updates.consigneeName },
@@ -515,7 +589,6 @@ export const shipmentsService = {
       patch.consigneeId = consignee.id;
     }
 
-    if (updates.financialYearId) patch.financialYearId = updates.financialYearId;
     if (updates.invoiceDate) patch.invoiceDate = parseDateRequired(updates.invoiceDate, 'invoiceDate');
     if (updates.portCode) patch.portCode = normalizePortCode(updates.portCode);
     if (updates.packageCount !== undefined) patch.packageCount = Number(updates.packageCount);
@@ -523,7 +596,9 @@ export const shipmentsService = {
     let nextInvVal = existing.invoiceValueUsd;
     if (updates.invoiceValueUsd !== undefined) {
       const newInvVal = round2(updates.invoiceValueUsd);
-      if (newInvVal < 0) throw new ValidationError('Invoice Value cannot be negative.');
+      if (!Number.isFinite(newInvVal) || newInvVal <= 0) {
+        throw new ValidationError('Invoice Value (USD) must be greater than zero.');
+      }
       const totalAllocated = existing.totalPaidUsd || 0;
       if (newInvVal < totalAllocated - 0.001) {
         throw new ConflictError(
@@ -537,8 +612,15 @@ export const shipmentsService = {
     if (updates.shippingBillNumber) patch.shippingBillNumber = String(updates.shippingBillNumber).trim();
     if (updates.shippingBillDate) patch.shippingBillDate = parseDateRequired(updates.shippingBillDate, 'shippingBillDate');
 
-    const nextRate = updates.sbExchangeRate !== undefined ? Number(updates.sbExchangeRate) : existing.sbExchangeRate;
-    if (updates.sbExchangeRate !== undefined) patch.sbExchangeRate = nextRate;
+    let nextRate = existing.sbExchangeRate;
+    if (updates.sbExchangeRate !== undefined) {
+      const parsedRate = Number(updates.sbExchangeRate);
+      if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+        throw new ValidationError('Customs Exchange Rate must be greater than zero.');
+      }
+      patch.sbExchangeRate = parsedRate;
+      nextRate = parsedRate;
+    }
 
     if (updates.fobValueInr !== undefined) {
       patch.fobValueInr = round2(updates.fobValueInr);
@@ -546,10 +628,11 @@ export const shipmentsService = {
       patch.fobValueInr = calculateFobInr(nextInvVal, nextRate);
     }
 
-    if (updates.blNumber !== undefined) patch.blNumber = updates.blNumber ? String(updates.blNumber).trim() : null;
-    if (updates.blDate !== undefined) patch.blDate = parseDateOptional(updates.blDate);
-    if (updates.vesselName !== undefined) patch.vesselName = updates.vesselName ? String(updates.vesselName).trim() : null;
-    if (updates.remarks !== undefined) patch.remarks = updates.remarks ? String(updates.remarks).trim() : null;
+    const cleanOptionalText = (v: any) => (v === null || v === 'DEL' || String(v).trim() === '' ? null : String(v).trim());
+    if (updates.blNumber !== undefined) patch.blNumber = cleanOptionalText(updates.blNumber);
+    if (updates.blDate !== undefined) patch.blDate = updates.blDate === 'DEL' ? null : parseDateOptional(updates.blDate);
+    if (updates.vesselName !== undefined) patch.vesselName = cleanOptionalText(updates.vesselName);
+    if (updates.remarks !== undefined) patch.remarks = cleanOptionalText(updates.remarks);
     if (updates.reviewStatus) patch.reviewStatus = updates.reviewStatus;
 
     patch.paymentStatus = deriveShipmentPaymentStatus(nextInvVal, existing.totalPaidUsd || 0);
@@ -558,15 +641,23 @@ export const shipmentsService = {
       await shipmentsRepository.updateRaw(id, patch, tx);
     }
 
+    const parseOptionalNum = (val: any): number | undefined => {
+      if (val === undefined) return undefined;
+      if (val === null || val === 'DEL' || String(val).trim() === '') return 0;
+      const n = Number(val);
+      if (!Number.isFinite(n)) throw new ValidationError('Invalid numeric incentive value.');
+      return n;
+    };
+
     // Inline incentive updates
     if (updates.dbkClaimed !== undefined || updates.dbkReceived !== undefined || updates.dbkReceivedDate !== undefined) {
       await incentivesService.upsertIncentiveForShipment(
         id,
         'DRAWBACK',
         {
-          claimedAmount: updates.dbkClaimed !== undefined ? Number(updates.dbkClaimed) : undefined,
-          receivedAmount: updates.dbkReceived !== undefined ? Number(updates.dbkReceived) : undefined,
-          receivedDate: updates.dbkReceivedDate,
+          claimedAmount: parseOptionalNum(updates.dbkClaimed),
+          receivedAmount: parseOptionalNum(updates.dbkReceived),
+          receivedDate: updates.dbkReceivedDate === 'DEL' ? undefined : updates.dbkReceivedDate,
         },
         tx
       );
@@ -576,8 +667,8 @@ export const shipmentsService = {
         id,
         'RODTEP',
         {
-          claimedAmount: updates.rodtepClaimed !== undefined ? Number(updates.rodtepClaimed) : undefined,
-          receivedAmount: updates.rodtepReceived !== undefined ? Number(updates.rodtepReceived) : undefined,
+          claimedAmount: parseOptionalNum(updates.rodtepClaimed),
+          receivedAmount: parseOptionalNum(updates.rodtepReceived),
         },
         tx
       );
@@ -587,23 +678,34 @@ export const shipmentsService = {
         id,
         'ROSCTL',
         {
-          claimedAmount: updates.rosctlClaimed !== undefined ? Number(updates.rosctlClaimed) : undefined,
-          receivedAmount: updates.rosctlReceived !== undefined ? Number(updates.rosctlReceived) : undefined,
+          claimedAmount: parseOptionalNum(updates.rosctlClaimed),
+          receivedAmount: parseOptionalNum(updates.rosctlReceived),
         },
         tx
       );
     }
 
-    if (updates.brcNumber !== undefined || updates.brcDate !== undefined) {
-      await brcService.updateBrcRecord(
-        id,
-        {
-          brcNumber: updates.brcNumber ?? null,
-          realisationDate: updates.brcDate ?? null,
-          status: updates.brcNumber ? 'REALISED' : undefined,
-        },
-        tx
-      );
+    if (
+      updates.brcNumber !== undefined ||
+      updates.brcDate !== undefined ||
+      updates.realisationDate !== undefined ||
+      updates.brcStatus !== undefined
+    ) {
+      const brcPatch: Parameters<typeof brcService.updateBrcRecord>[1] = {};
+      if (updates.brcNumber !== undefined) {
+        brcPatch.brcNumber = cleanOptionalText(updates.brcNumber);
+      }
+      if (updates.brcDate !== undefined) {
+        brcPatch.issueDate = updates.brcDate === 'DEL' || updates.brcDate === '' ? null : updates.brcDate;
+      }
+      if (updates.realisationDate !== undefined) {
+        brcPatch.realisationDate =
+          updates.realisationDate === 'DEL' || updates.realisationDate === '' ? null : updates.realisationDate;
+      }
+      if (updates.brcStatus !== undefined) {
+        brcPatch.status = updates.brcStatus;
+      }
+      await brcService.updateBrcRecord(id, brcPatch, tx);
     }
 
     return (await shipmentsRepository.findById(id, tx))!;
@@ -642,33 +744,37 @@ export const shipmentsService = {
   },
 
   async deleteShipment(id: string): Promise<{ success: boolean }> {
-    const shipment = await shipmentsRepository.findById(id);
-    if (!shipment) throw new NotFoundError('Shipment not found.');
+    const docPaths = await withTransaction(async (tx) => {
+      await shipmentsRepository.lockShipmentForUpdate(id, tx);
+      const shipment = await shipmentsRepository.findById(id, tx);
+      if (!shipment) throw new NotFoundError('Shipment not found.');
 
-    const allocs = shipment.allocations || [];
-    if (allocs.length > 0) {
-      const totalPaid = shipment.totalPaidUsd || 0;
-      throw new ConflictError(
-        `Cannot delete shipment "${shipment.invoiceNumber}": It has active FIRC payment allocations totaling $${totalPaid.toFixed(2)} USD across ${allocs.length} payment(s). Please reverse all payment allocations first, or archive this shipment.`
-      );
-    }
+      const allocs = shipment.allocations || [];
+      if (allocs.length > 0) {
+        const totalPaid = shipment.totalPaidUsd || 0;
+        throw new ConflictError(
+          `Cannot delete shipment "${shipment.invoiceNumber}": It has active FIRC payment allocations totaling $${totalPaid.toFixed(2)} USD across ${allocs.length} payment(s). Please reverse all payment allocations first, or archive this shipment.`
+        );
+      }
 
-    const receivedIncentives = (shipment.incentives || []).filter((i) => i.receivedAmount > 0);
-    if (receivedIncentives.length > 0) {
-      throw new ConflictError(
-        `Cannot delete shipment "${shipment.invoiceNumber}": Incentive funds have already been credited for this shipment. Deletion is blocked to preserve statutory customs history. Please archive this shipment instead.`
-      );
-    }
+      const receivedIncentives = (shipment.incentives || []).filter((i) => i.receivedAmount > 0);
+      if (receivedIncentives.length > 0) {
+        throw new ConflictError(
+          `Cannot delete shipment "${shipment.invoiceNumber}": Incentive funds have already been credited for this shipment. Deletion is blocked to preserve statutory customs history. Please archive this shipment instead.`
+        );
+      }
 
-    const brc = shipment.brcRecord;
-    if (brc && (brc.status === 'REALISED' || Boolean(brc.brcNumber))) {
-      throw new ConflictError(
-        `Cannot delete shipment "${shipment.invoiceNumber}": Bank Realisation Certificate (${brc.brcNumber || 'eBRC'}) is marked REALISED. Deletion of realised export records is prohibited under DGFT regulations. Please archive this shipment instead.`
-      );
-    }
+      const brc = shipment.brcRecord;
+      if (brc && (brc.status === 'REALISED' || Boolean(brc.brcNumber))) {
+        throw new ConflictError(
+          `Cannot delete shipment "${shipment.invoiceNumber}": Bank Realisation Certificate (${brc.brcNumber || 'eBRC'}) is marked REALISED. Deletion of realised export records is prohibited under DGFT regulations. Please archive this shipment instead.`
+        );
+      }
 
-    const docPaths = (shipment.documents || []).map((d) => d.storedPath);
-    await shipmentsRepository.delete(id);
+      const paths = (shipment.documents || []).map((d) => d.storedPath);
+      await shipmentsRepository.delete(id, tx);
+      return paths;
+    });
 
     for (const storedPath of docPaths) {
       fileStorageService.deletePrivateFile(storedPath);

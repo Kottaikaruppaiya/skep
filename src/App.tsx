@@ -47,13 +47,14 @@ import { B2bReportsView } from './views/b2b/B2bReportsView.tsx';
 import { User, FinancialYear, ConsigneeMaster, BankMaster, Shipment } from './types/index.ts';
 import { api } from './api/client.ts';
 import { useAuth } from './core/auth/AuthContext.tsx';
+import { getCurrentMonthPeriodKey } from './shared/utils/normalizer.ts';
 
 export default function App() {
   const { currentUser, isInitializing, setCurrentUser, logout } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavItemKey>('dashboard');
-  const [selectedB2bPeriodKey, setSelectedB2bPeriodKey] = useState<string>('2026-08');
+  const [selectedB2bPeriodKey, setSelectedB2bPeriodKey] = useState<string>(() => getCurrentMonthPeriodKey());
   const [financialYears, setFinancialYears] = useState<FinancialYear[]>([]);
-  const [selectedFyId, setSelectedFyId] = useState<string>('fy-2026-27');
+  const [selectedFyId, setSelectedFyId] = useState<string>('');
   const [consignees, setConsignees] = useState<ConsigneeMaster[]>([]);
   const [banks, setBanks] = useState<BankMaster[]>([]);
 
@@ -219,6 +220,7 @@ export default function App() {
               selectedFyId={selectedFyId}
               onSelectShipment={setSelectedShipmentId}
               onRefresh={triggerRefresh}
+              userRole={currentUser.role}
               refreshKey={refreshKey}
             />
           )}
@@ -346,6 +348,9 @@ export default function App() {
           {currentTab === 'documents' && (
             <DocumentReviewView
               userRole={currentUser.role}
+              selectedFyId={selectedFyId}
+              financialYears={financialYears}
+              banks={banks}
               onSelectShipment={setSelectedShipmentId}
               refreshKey={refreshKey}
             />

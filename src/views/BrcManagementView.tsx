@@ -171,9 +171,10 @@ export const BrcManagementView: React.FC<BrcManagementViewProps> = ({
                 shipments.map((s) => {
                   const brc = s.brcRecord;
                   const isOverdue =
-                    brc?.status === 'PENDING' &&
-                    brc?.statutoryDeadline &&
-                    new Date(brc.statutoryDeadline) < new Date();
+                    brc?.status === 'OVERDUE' ||
+                    ((brc?.status === 'PENDING' || brc?.status === 'ISSUED') &&
+                      Boolean(brc?.statutoryDeadline) &&
+                      new Date(brc.statutoryDeadline!).getTime() < Date.now());
 
                   return (
                     <tr key={s.id} className="hover:bg-slate-50 transition-colors">
@@ -244,20 +245,20 @@ export const BrcManagementView: React.FC<BrcManagementViewProps> = ({
                               )}
                             </>
                           )}
-                          {(() => {
-                            const brcDoc = s.documents?.find((d) => d.category.startsWith('BRC'));
-                            if (!brcDoc) return null;
-                            return (
+                          {(s.documents || [])
+                            .filter((d) => d.category.startsWith('BRC'))
+                            .map((brcDoc, docIdx) => (
                               <button
+                                key={brcDoc.id}
                                 type="button"
                                 onClick={() => void api.downloadDocument(brcDoc.id, brcDoc.originalFilename)}
-                                title="Download BRC Document"
-                                className="w-7 h-7 flex items-center justify-center text-teal-600 hover:text-teal-800 hover:bg-teal-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                                title={`Download ${brcDoc.category.replace(/_/g, ' ')} (${brcDoc.originalFilename})`}
+                                className="h-7 px-1.5 flex items-center justify-center gap-0.5 text-teal-600 hover:text-teal-800 hover:bg-teal-50 rounded-lg transition-colors cursor-pointer shrink-0 text-[10px] font-bold"
                               >
-                                <Download size={14} />
+                                <Download size={13} />
+                                {brcDoc.category === 'BRC_COPY_2' ? '2' : docIdx > 0 ? String(docIdx + 1) : ''}
                               </button>
-                            );
-                          })()}
+                            ))}
                           <button
                             onClick={() => onSelectShipment(s.id)}
                             title="View Shipment Details"

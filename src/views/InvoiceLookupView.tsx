@@ -23,13 +23,14 @@ import {
   Info
 } from 'lucide-react';
 import { api } from '../api/client.ts';
-import { Shipment, ConsigneeMaster } from '../types/index.ts';
+import { Shipment, ConsigneeMaster, Role } from '../types/index.ts';
 import { normalizeInvoiceKey } from '../shared/utils/normalizer.ts';
 
 interface InvoiceLookupViewProps {
   selectedFyId: string;
   onSelectShipment: (id: string) => void;
   onRefresh?: () => void;
+  userRole?: Role;
   refreshKey?: number;
 }
 
@@ -37,9 +38,11 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
   selectedFyId,
   onSelectShipment,
   onRefresh,
+  userRole = 'ADMIN',
   refreshKey,
 }) => {
-  const [inputVal, setInputVal] = useState('SKE/26-27/020');
+  const isViewer = userRole === 'VIEWER';
+  const [inputVal, setInputVal] = useState('');
   const [results, setResults] = useState<Shipment[]>([]);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
   const [allShipments, setAllShipments] = useState<Shipment[]>([]);
@@ -114,15 +117,18 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
         setAllShipments(shipmentsData);
         setConsignees(consigneesData);
 
-        // Auto select first match if found
-        if (inputVal && !selectedShipment) {
-          const match = shipmentsData.find(
-            (s) =>
-              s.invoiceNumber.toLowerCase() === inputVal.trim().toLowerCase() ||
-              s.normalizedInvoiceKey === normalizeInvoiceKey(inputVal)
-          );
-          if (match) {
-            setSelectedShipment(match);
+        if (shipmentsData.length > 0 && !selectedShipment) {
+          const match = inputVal.trim()
+            ? shipmentsData.find(
+                (s) =>
+                  s.invoiceNumber.toLowerCase() === inputVal.trim().toLowerCase() ||
+                  s.normalizedInvoiceKey === normalizeInvoiceKey(inputVal)
+              )
+            : shipmentsData[0];
+          const chosen = match || shipmentsData[0];
+          if (chosen) {
+            setSelectedShipment(chosen);
+            if (!inputVal.trim()) setInputVal(chosen.invoiceNumber);
           }
         }
       })
@@ -269,10 +275,17 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
   // Realised calculations
   const totalPaidUsd = selectedShipment?.totalPaidUsd || 0;
   const balanceDueUsd = selectedShipment?.balanceDueUsd ?? Math.max(0, (selectedShipment?.invoiceValueUsd || 0) - totalPaidUsd);
-  const realisedInr = selectedShipment?.realisedInr || (totalPaidUsd * (selectedShipment?.averageRealisedRate || selectedShipment?.sbExchangeRate || 92.1));
+  const effectiveRate = selectedShipment?.averageRealisedRate || selectedShipment?.sbExchangeRate || 0;
+  const realisedInr = selectedShipment?.realisedInr ?? (totalPaidUsd * effectiveRate);
   const fobInr = selectedShipment?.fobValueInr || 0;
   const differenceInr = realisedInr - fobInr;
   const netForexInr = balanceDueUsd === 0 ? differenceInr : 0;
+  const allocationBanks = Array.from(
+    new Set((selectedShipment?.allocations || []).map((a) => a.paymentBankName).filter(Boolean))
+  ).join(', ');
+  const allocationIrms = Array.from(
+    new Set((selectedShipment?.allocations || []).map((a) => a.paymentIrm).filter(Boolean))
+  ).join(', ');
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -397,41 +410,45 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">
-                Rule: Enter <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-amber-300 font-mono text-[10px]">DEL</kbd> in any field to clear optional values
-              </span>
+              {!isViewer && (
+                <span className="text-xs text-slate-400">
+                  Rule: Enter <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-amber-300 font-mono text-[10px]">DEL</kbd> in any field to clear optional values
+                </span>
+              )}
             </div>
           </div>
 
           <div className="p-5 space-y-6">
             {/* Action Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-blue-50 border border-blue-100 p-3 rounded-lg">
-              <div className="flex items-center gap-2 text-xs text-blue-900 font-medium">
-                <Info size={16} className="text-blue-600" />
-                <span>
-                  Change values in the <strong>Change To</strong> column below. Leave blank to retain current value.
-                </span>
+            {!isViewer && (
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-blue-50 border border-blue-100 p-3 rounded-lg">
+                <div className="flex items-center gap-2 text-xs text-blue-900 font-medium">
+                  <Info size={16} className="text-blue-600" />
+                  <span>
+                    Change values in the <strong>Change To</strong> column below. Leave blank to retain current value.
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={clearChangeToInputs}
+                    type="button"
+                    className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <RotateCcw size={13} />
+                    <span>Clear Changes</span>
+                  </button>
+                  <button
+                    onClick={handleSaveChanges}
+                    disabled={saving}
+                    type="button"
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <Save size={14} />
+                    <span>{saving ? 'Saving...' : 'Save Changes'}</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={clearChangeToInputs}
-                  type="button"
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 transition-colors shadow-2xs"
-                >
-                  <RotateCcw size={13} />
-                  <span>Clear Changes</span>
-                </button>
-                <button
-                  onClick={handleSaveChanges}
-                  disabled={saving}
-                  type="button"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors shadow-2xs"
-                >
-                  <Save size={14} />
-                  <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-                </button>
-              </div>
-            </div>
+            )}
 
             {/* SECTION 1: Columns A–H — Shipping Bill Details */}
             <div className="space-y-3">
@@ -454,63 +471,73 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col B: Invoice No</span>
                   <div className="font-mono font-bold text-slate-900">{selectedShipment.invoiceNumber}</div>
-                  <input
-                    type="text"
-                    placeholder="Change To..."
-                    value={changeTo.invoiceNumber}
-                    onChange={(e) => setChangeTo({ ...changeTo, invoiceNumber: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="Change To..."
+                      value={changeTo.invoiceNumber}
+                      onChange={(e) => setChangeTo({ ...changeTo, invoiceNumber: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column C: Invoice Date */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col C: Invoice Date</span>
                   <div className="font-mono text-slate-800">{selectedShipment.invoiceDate}</div>
-                  <input
-                    type="date"
-                    value={changeTo.invoiceDate}
-                    onChange={(e) => setChangeTo({ ...changeTo, invoiceDate: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="date"
+                      value={changeTo.invoiceDate}
+                      onChange={(e) => setChangeTo({ ...changeTo, invoiceDate: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column D: Shipping Bill No */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col D: Shipping Bill No</span>
                   <div className="font-mono font-bold text-slate-900">{selectedShipment.shippingBillNumber}</div>
-                  <input
-                    type="text"
-                    placeholder="Change To..."
-                    value={changeTo.shippingBillNumber}
-                    onChange={(e) => setChangeTo({ ...changeTo, shippingBillNumber: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="Change To..."
+                      value={changeTo.shippingBillNumber}
+                      onChange={(e) => setChangeTo({ ...changeTo, shippingBillNumber: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column E: Shipping Bill Date */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col E: SB Date</span>
                   <div className="font-mono text-slate-800">{selectedShipment.shippingBillDate}</div>
-                  <input
-                    type="date"
-                    value={changeTo.shippingBillDate}
-                    onChange={(e) => setChangeTo({ ...changeTo, shippingBillDate: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="date"
+                      value={changeTo.shippingBillDate}
+                      onChange={(e) => setChangeTo({ ...changeTo, shippingBillDate: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column F: Port Code */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col F: Port Code</span>
                   <div className="font-mono text-slate-800">{selectedShipment.portCode}</div>
-                  <input
-                    type="text"
-                    placeholder="e.g. INNSA1 / INMAA1"
-                    value={changeTo.portCode}
-                    onChange={(e) => setChangeTo({ ...changeTo, portCode: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="e.g. INNSA1 / INMAA1"
+                      value={changeTo.portCode}
+                      onChange={(e) => setChangeTo({ ...changeTo, portCode: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column G: Consignee Name */}
@@ -519,31 +546,35 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                   <div className="font-semibold text-slate-900 truncate" title={selectedShipment.consigneeName}>
                     {selectedShipment.consigneeName || 'Unknown Buyer'}
                   </div>
-                  <select
-                    value={changeTo.consigneeId}
-                    onChange={(e) => setChangeTo({ ...changeTo, consigneeId: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs"
-                  >
-                    <option value="">Keep current buyer</option>
-                    {consignees.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  {!isViewer && (
+                    <select
+                      value={changeTo.consigneeId}
+                      onChange={(e) => setChangeTo({ ...changeTo, consigneeId: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs"
+                    >
+                      <option value="">Keep current buyer</option>
+                      {consignees.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 {/* Column H: No. of Pkgs */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col H: No. of Pkgs</span>
                   <div className="font-mono text-slate-800">{selectedShipment.packageCount || 0}</div>
-                  <input
-                    type="number"
-                    placeholder="Change To..."
-                    value={changeTo.packageCount}
-                    onChange={(e) => setChangeTo({ ...changeTo, packageCount: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      placeholder="Change To..."
+                      value={changeTo.packageCount}
+                      onChange={(e) => setChangeTo({ ...changeTo, packageCount: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -562,14 +593,16 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                   <div className="font-mono font-bold text-emerald-900 text-sm">
                     ${selectedShipment.invoiceValueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Change USD..."
-                    value={changeTo.invoiceValueUsd}
-                    onChange={(e) => setChangeTo({ ...changeTo, invoiceValueUsd: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Change USD..."
+                      value={changeTo.invoiceValueUsd}
+                      onChange={(e) => setChangeTo({ ...changeTo, invoiceValueUsd: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column J: FOB Value (INR) */}
@@ -578,14 +611,16 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                   <div className="font-mono font-bold text-slate-900 text-sm">
                     ₹{selectedShipment.fobValueInr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Change FOB INR..."
-                    value={changeTo.fobValueInr}
-                    onChange={(e) => setChangeTo({ ...changeTo, fobValueInr: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Change FOB INR..."
+                      value={changeTo.fobValueInr}
+                      onChange={(e) => setChangeTo({ ...changeTo, fobValueInr: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column K: Exchange Rate */}
@@ -594,14 +629,16 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                   <div className="font-mono text-slate-900 text-sm">
                     ₹{selectedShipment.sbExchangeRate.toFixed(2)}
                   </div>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Change Ex. Rate..."
-                    value={changeTo.sbExchangeRate}
-                    onChange={(e) => setChangeTo({ ...changeTo, sbExchangeRate: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Change Ex. Rate..."
+                      value={changeTo.sbExchangeRate}
+                      onChange={(e) => setChangeTo({ ...changeTo, sbExchangeRate: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -618,23 +655,27 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-amber-50/40 rounded-lg border border-amber-200 space-y-1">
                   <span className="text-[10px] font-bold text-amber-900 block uppercase">Col L: Drawback Claimed (INR)</span>
                   <div className="font-mono font-bold text-slate-900">₹{(dbk?.claimedAmount || 0).toLocaleString()}</div>
-                  <input
-                    type="number"
-                    placeholder="Claimed INR..."
-                    value={changeTo.dbkClaimed}
-                    onChange={(e) => setChangeTo({ ...changeTo, dbkClaimed: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      placeholder="Claimed INR..."
+                      value={changeTo.dbkClaimed}
+                      onChange={(e) => setChangeTo({ ...changeTo, dbkClaimed: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                   <div className="pt-1 border-t border-amber-100">
                     <span className="text-[10px] font-bold text-amber-900 block uppercase">Col M: Drawback Recd</span>
                     <div className="font-mono text-emerald-700 font-semibold">₹{(dbk?.receivedAmount || 0).toLocaleString()}</div>
-                    <input
-                      type="number"
-                      placeholder="Recd INR..."
-                      value={changeTo.dbkReceived}
-                      onChange={(e) => setChangeTo({ ...changeTo, dbkReceived: e.target.value })}
-                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
-                    />
+                    {!isViewer && (
+                      <input
+                        type="number"
+                        placeholder="Recd INR..."
+                        value={changeTo.dbkReceived}
+                        onChange={(e) => setChangeTo({ ...changeTo, dbkReceived: e.target.value })}
+                        className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -642,35 +683,41 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col N: Drawback Recd Date</span>
                   <div className="font-mono text-slate-800">{dbk?.receivedDate || 'Not Received'}</div>
-                  <input
-                    type="date"
-                    value={changeTo.dbkReceivedDate}
-                    onChange={(e) => setChangeTo({ ...changeTo, dbkReceivedDate: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="date"
+                      value={changeTo.dbkReceivedDate}
+                      onChange={(e) => setChangeTo({ ...changeTo, dbkReceivedDate: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column O & P: RoDTEP Amt & Recd */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col O: RoDTEP Claimed</span>
                   <div className="font-mono font-bold text-slate-900">₹{(rodtep?.claimedAmount || 0).toLocaleString()}</div>
-                  <input
-                    type="number"
-                    placeholder="Claimed INR..."
-                    value={changeTo.rodtepClaimed}
-                    onChange={(e) => setChangeTo({ ...changeTo, rodtepClaimed: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      placeholder="Claimed INR..."
+                      value={changeTo.rodtepClaimed}
+                      onChange={(e) => setChangeTo({ ...changeTo, rodtepClaimed: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                   <div className="pt-1 border-t border-slate-200">
                     <span className="text-[10px] font-bold text-slate-500 block uppercase">Col P: RoDTEP Recd</span>
                     <div className="font-mono text-emerald-700 font-semibold">₹{(rodtep?.receivedAmount || 0).toLocaleString()}</div>
-                    <input
-                      type="number"
-                      placeholder="Recd INR..."
-                      value={changeTo.rodtepReceived}
-                      onChange={(e) => setChangeTo({ ...changeTo, rodtepReceived: e.target.value })}
-                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
-                    />
+                    {!isViewer && (
+                      <input
+                        type="number"
+                        placeholder="Recd INR..."
+                        value={changeTo.rodtepReceived}
+                        onChange={(e) => setChangeTo({ ...changeTo, rodtepReceived: e.target.value })}
+                        className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -678,23 +725,27 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col Q: RoSCTL Claimed</span>
                   <div className="font-mono font-bold text-slate-900">₹{(rosctl?.claimedAmount || 0).toLocaleString()}</div>
-                  <input
-                    type="number"
-                    placeholder="Claimed INR..."
-                    value={changeTo.rosctlClaimed}
-                    onChange={(e) => setChangeTo({ ...changeTo, rosctlClaimed: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="number"
+                      placeholder="Claimed INR..."
+                      value={changeTo.rosctlClaimed}
+                      onChange={(e) => setChangeTo({ ...changeTo, rosctlClaimed: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                   <div className="pt-1 border-t border-slate-200">
                     <span className="text-[10px] font-bold text-slate-500 block uppercase">Col R: RoSCTL Recd</span>
                     <div className="font-mono text-emerald-700 font-semibold">₹{(rosctl?.receivedAmount || 0).toLocaleString()}</div>
-                    <input
-                      type="number"
-                      placeholder="Recd INR..."
-                      value={changeTo.rosctlReceived}
-                      onChange={(e) => setChangeTo({ ...changeTo, rosctlReceived: e.target.value })}
-                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
-                    />
+                    {!isViewer && (
+                      <input
+                        type="number"
+                        placeholder="Recd INR..."
+                        value={changeTo.rosctlReceived}
+                        onChange={(e) => setChangeTo({ ...changeTo, rosctlReceived: e.target.value })}
+                        className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -712,11 +763,10 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col S: Payment Date</span>
                   <div className="font-mono text-slate-800 font-semibold mt-1">
-                    {selectedShipment.allocations?.[0]?.allocatedAt
-                      ? selectedShipment.allocations[0].allocatedAt.split('T')[0]
-                      : selectedShipment.paymentStatus === 'FULLY_PAID'
-                      ? selectedShipment.invoiceDate
-                      : 'Pending'}
+                    {selectedShipment.allocations?.[0]?.paymentCreditDate ||
+                      (selectedShipment.allocations?.[0]?.allocatedAt
+                        ? selectedShipment.allocations[0].allocatedAt.split('T')[0]
+                        : 'Pending')}
                   </div>
                   <span className="text-[10px] text-slate-400 block mt-1">From linked FIRC Inward Remittance</span>
                 </div>
@@ -745,7 +795,7 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col V: Ex. Rate Recd</span>
                   <div className="font-mono text-slate-900 text-sm mt-1">
-                    ₹{(selectedShipment.averageRealisedRate || selectedShipment.sbExchangeRate).toFixed(2)}
+                    {effectiveRate > 0 ? `₹${effectiveRate.toFixed(2)}` : '—'}
                   </div>
                   <span className="text-[10px] text-slate-400 block mt-1">Effective bank conversion rate</span>
                 </div>
@@ -754,7 +804,7 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col W: Bank</span>
                   <div className="font-semibold text-slate-800 mt-1">
-                    {selectedShipment.allocations?.[0]?.paymentIrm ? 'DBS Bank India / HDFC' : 'Primary Authorised Dealer'}
+                    {allocationBanks || '—'}
                   </div>
                   <span className="text-[10px] text-slate-400 block mt-1">Authorised Dealer Bank</span>
                 </div>
@@ -763,7 +813,7 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col X: IRM / FIRC No</span>
                   <div className="font-mono text-slate-800 font-semibold mt-1">
-                    {selectedShipment.allocations?.[0]?.paymentIrm || 'FIRC Evidence Attached'}
+                    {allocationIrms || '—'}
                   </div>
                   <span className="text-[10px] text-slate-400 block mt-1">Bank Inward Reference</span>
                 </div>
@@ -772,25 +822,29 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col Y: BRC Number</span>
                   <div className="font-mono font-bold text-slate-900">{brc?.brcNumber || 'Not Issued'}</div>
-                  <input
-                    type="text"
-                    placeholder="Enter BRC / DEL to clear"
-                    value={changeTo.brcNumber}
-                    onChange={(e) => setChangeTo({ ...changeTo, brcNumber: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="Enter BRC / DEL to clear"
+                      value={changeTo.brcNumber}
+                      onChange={(e) => setChangeTo({ ...changeTo, brcNumber: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
 
                 {/* Column Z: BRC Date */}
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col Z: BRC Date</span>
-                  <div className="font-mono text-slate-800">{brc?.realisationDate || brc?.issueDate || 'Pending'}</div>
-                  <input
-                    type="date"
-                    value={changeTo.brcDate}
-                    onChange={(e) => setChangeTo({ ...changeTo, brcDate: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
-                  />
+                  <div className="font-mono text-slate-800">{brc?.issueDate || brc?.realisationDate || 'Pending'}</div>
+                  {!isViewer && (
+                    <input
+                      type="date"
+                      value={changeTo.brcDate}
+                      onChange={(e) => setChangeTo({ ...changeTo, brcDate: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono"
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -851,51 +905,59 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
             {/* Optional Fields: Shipping / Logistics & Remarks */}
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Optional Logistics &amp; Remarks (Type DEL to Clear)
+                Optional Logistics &amp; Remarks {!isViewer ? '(Type DEL to Clear)' : ''}
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
                 <div>
                   <span className="text-[10px] text-slate-500 block font-semibold">Bill of Lading No:</span>
                   <div className="font-mono text-slate-800">{selectedShipment.blNumber || 'None'}</div>
-                  <input
-                    type="text"
-                    placeholder="Change To..."
-                    value={changeTo.blNumber}
-                    onChange={(e) => setChangeTo({ ...changeTo, blNumber: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="Change To..."
+                      value={changeTo.blNumber}
+                      onChange={(e) => setChangeTo({ ...changeTo, blNumber: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
+                    />
+                  )}
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 block font-semibold">BL Date:</span>
                   <div className="font-mono text-slate-800">{selectedShipment.blDate || 'None'}</div>
-                  <input
-                    type="date"
-                    value={changeTo.blDate}
-                    onChange={(e) => setChangeTo({ ...changeTo, blDate: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="date"
+                      value={changeTo.blDate}
+                      onChange={(e) => setChangeTo({ ...changeTo, blDate: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono mt-1"
+                    />
+                  )}
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 block font-semibold">Vessel Name:</span>
                   <div className="text-slate-800">{selectedShipment.vesselName || 'None'}</div>
-                  <input
-                    type="text"
-                    placeholder="Change To..."
-                    value={changeTo.vesselName}
-                    onChange={(e) => setChangeTo({ ...changeTo, vesselName: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs mt-1"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="Change To..."
+                      value={changeTo.vesselName}
+                      onChange={(e) => setChangeTo({ ...changeTo, vesselName: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs mt-1"
+                    />
+                  )}
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-500 block font-semibold">Remarks:</span>
                   <div className="text-slate-800 truncate" title={selectedShipment.remarks}>{selectedShipment.remarks || 'None'}</div>
-                  <input
-                    type="text"
-                    placeholder="Change To..."
-                    value={changeTo.remarks}
-                    onChange={(e) => setChangeTo({ ...changeTo, remarks: e.target.value })}
-                    className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs mt-1"
-                  />
+                  {!isViewer && (
+                    <input
+                      type="text"
+                      placeholder="Change To..."
+                      value={changeTo.remarks}
+                      onChange={(e) => setChangeTo({ ...changeTo, remarks: e.target.value })}
+                      className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-xs mt-1"
+                    />
+                  )}
                 </div>
               </div>
             </div>

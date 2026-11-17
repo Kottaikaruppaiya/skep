@@ -19,6 +19,7 @@ documentsRouter.get('/:id/download', authenticate, documentsController.download)
 documentsRouter.post(
   '/extract-batch',
   authenticate,
+  requireRole(['SUPER_ADMIN', 'ADMIN']),
   upload.fields([
     { name: 'invoiceDoc', maxCount: 1 },
     { name: 'shippingBillDoc', maxCount: 1 },

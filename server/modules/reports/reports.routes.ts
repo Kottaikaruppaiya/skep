@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware.ts';
 import { requireRole } from '../../middleware/role.middleware.ts';
-import { uploadMiddleware } from '../../middleware/upload.middleware.ts';
+import { spreadsheetUpload } from '../../middleware/upload.middleware.ts';
 import { reportsController } from './reports.controller.ts';
 
 export const reportsRouter = Router();
@@ -18,6 +18,6 @@ reportsRouter.post(
   '/excel/import',
   authenticate,
   requireRole(['SUPER_ADMIN', 'ADMIN']),
-  uploadMiddleware.single('file'),
+  spreadsheetUpload.single('file'),
   reportsController.importHistorical
 );

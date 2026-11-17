@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   Search,
@@ -23,6 +23,12 @@ import {
 import { api } from '../../api/client.ts';
 import type { B2bInvoice, Role, Supplier } from '../../types/index.ts';
 import { B2bAddInvoiceModal } from './B2bAddInvoiceModal.tsx';
+import { ConfirmationModal } from '../../components/ConfirmationModal.tsx';
+import {
+  getCurrentIndianFinancialYearLabel,
+  getDefaultGstrPeriodLabel,
+  getFiscalYearOptions,
+} from '../../shared/utils/normalizer.ts';
 
 interface B2bInvoiceRegisterViewProps {
   userRole: Role;
@@ -40,7 +46,7 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
   // Filter states
   const [search, setSearch] = useState('');
   const [periodKey, setPeriodKey] = useState('ALL');
-  const [financialYear, setFinancialYear] = useState('2026-27');
+  const [financialYear, setFinancialYear] = useState(() => getCurrentIndianFinancialYearLabel());
   const [supplierGstin, setSupplierGstin] = useState('ALL');
   const [invoiceType, setInvoiceType] = useState('ALL');
   const [reverseCharge, setReverseCharge] = useState('ALL');
@@ -52,9 +58,32 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<B2bInvoice | null>(null);
   const [viewingInvoice, setViewingInvoice] = useState<B2bInvoice | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<B2bInvoice | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isViewer = userRole === 'VIEWER';
+  const fyOptions = useMemo(() => getFiscalYearOptions(), []);
+  const periodOptions = useMemo(() => {
+    const effectiveFy = /^\d{4}-\d{2}$/.test(financialYear)
+      ? financialYear
+      : getCurrentIndianFinancialYearLabel();
+    const startYear = parseInt(effectiveFy.slice(0, 4), 10);
+    const months = [
+      { m: '04', name: 'April', y: startYear },
+      { m: '05', name: 'May', y: startYear },
+      { m: '06', name: 'June', y: startYear },
+      { m: '07', name: 'July', y: startYear },
+      { m: '08', name: 'August', y: startYear },
+      { m: '09', name: 'September', y: startYear },
+      { m: '10', name: 'October', y: startYear },
+      { m: '11', name: 'November', y: startYear },
+      { m: '12', name: 'December', y: startYear },
+      { m: '01', name: 'January', y: startYear + 1 },
+      { m: '02', name: 'February', y: startYear + 1 },
+      { m: '03', name: 'March', y: startYear + 1 },
+    ];
+    return months.map((item) => ({ key: `${item.y}-${item.m}`, label: `${item.name} ${item.y}` }));
+  }, [financialYear]);
 
   const loadData = async () => {
     setLoading(true);
@@ -107,22 +136,16 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
     });
   };
 
-  const handleDelete = async (invoice: B2bInvoice) => {
+  const handleDelete = (invoice: B2bInvoice) => {
     if (isViewer) return;
-    if (
-      !confirm(
-        `Are you sure you want to delete invoice "${invoice.invoiceNumber}" for supplier ${invoice.supplierName}?`
-      )
-    ) {
-      return;
-    }
     setActionError(null);
-    try {
-      await api.deleteB2bInvoice(invoice.id);
-      loadData();
-    } catch (err: any) {
-      setActionError(err.message || 'Failed to delete invoice.');
-    }
+    setDeleteTarget(invoice);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await api.deleteB2bInvoice(deleteTarget.id);
+    loadData();
   };
 
   const totalPages = Math.ceil(totalCount / limit) || 1;
@@ -228,12 +251,16 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
             value={financialYear}
             onChange={(e) => {
               setFinancialYear(e.target.value);
+              setPeriodKey('ALL');
               setPage(1);
             }}
             className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
           >
-            <option value="2026-27">FY 2026-27</option>
-            <option value="2025-26">FY 2025-26</option>
+            {fyOptions.map((fy) => (
+              <option key={fy} value={fy}>
+                FY {fy}
+              </option>
+            ))}
             <option value="ALL">All Financial Years</option>
           </select>
 
@@ -247,18 +274,11 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
             className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
           >
             <option value="ALL">All GSTR Periods</option>
-            <option value="2026-04">April 2026</option>
-            <option value="2026-05">May 2026</option>
-            <option value="2026-06">June 2026</option>
-            <option value="2026-07">July 2026</option>
-            <option value="2026-08">August 2026</option>
-            <option value="2026-09">September 2026</option>
-            <option value="2026-10">October 2026</option>
-            <option value="2026-11">November 2026</option>
-            <option value="2026-12">December 2026</option>
-            <option value="2027-01">January 2027</option>
-            <option value="2027-02">February 2027</option>
-            <option value="2027-03">March 2027</option>
+            {periodOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+              </option>
+            ))}
           </select>
 
           {/* Supplier Filter */}
@@ -594,7 +614,7 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
               </div>
               <div>
                 <span className="text-slate-500 font-semibold block">Return Source:</span>
-                <span>{viewingInvoice.source || 'GSTR-1'}</span>
+                <span>{viewingInvoice.source || '—'}</span>
               </div>
               {viewingInvoice.irn && (
                 <div className="col-span-2">
@@ -631,9 +651,20 @@ export const B2bInvoiceRegisterView: React.FC<B2bInvoiceRegisterViewProps> = ({ 
           }}
           onSuccess={loadData}
           initialData={editingInvoice}
-          defaultPeriodKey={periodKey !== 'ALL' ? periodKey : 'August 2026'}
+          defaultPeriodKey={periodKey !== 'ALL' ? periodKey : getDefaultGstrPeriodLabel()}
         />
       )}
+
+      <ConfirmationModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Delete B2B Invoice"
+        itemName={deleteTarget ? `${deleteTarget.invoiceNumber} (${deleteTarget.supplierName})` : ''}
+        itemType="B2B invoice"
+        message="Are you sure you want to permanently delete this inward B2B invoice? Dependent period summaries and supplier totals will be recalculated."
+        confirmText="Delete Invoice"
+      />
     </div>
   );
 };

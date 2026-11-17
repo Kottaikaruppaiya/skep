@@ -163,3 +163,18 @@ export function getMonthsForFinancialYear(fy: string): Array<{ periodKey: string
   }
   return result;
 }
+
+export function getCurrentIndianFinancialYearLabel(referenceDate: Date = new Date()): string {
+  const year = referenceDate.getUTCFullYear();
+  const month = referenceDate.getUTCMonth() + 1;
+  const fyStart = month >= 4 ? year : year - 1;
+  const fyEnd = String(fyStart + 1).slice(-2);
+  return `${fyStart}-${fyEnd}`;
+}
+
+export function getDefaultGstrPeriodLabel(referenceDate: Date = new Date()): string {
+  const year = referenceDate.getUTCFullYear();
+  const month = referenceDate.getUTCMonth();
+  return `${MONTH_NAMES[month]} ${year}`;
+}
+

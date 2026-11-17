@@ -5,7 +5,7 @@
 
 import type { B2bDashboardMetrics, B2bInvoice, B2bMonthlySummary } from '../../../src/types/index.ts';
 import { dAdd, round2 } from '../../shared/utils/decimal.ts';
-import { getMonthsForFinancialYear } from '../../shared/utils/gstr-period.ts';
+import { getCurrentIndianFinancialYearLabel, getMonthsForFinancialYear } from '../../shared/utils/gstr-period.ts';
 
 export function calculateB2bInvoiceTaxTotals(input: {
   taxableValue?: number;
@@ -30,8 +30,9 @@ export function calculateB2bInvoiceTaxTotals(input: {
   const cess = round2(input.cess || 0);
   const totalGst = round2(dAdd(dAdd(integratedTax, centralTax), dAdd(stateUtTax, cess)));
 
-  let invoiceValue = round2(input.invoiceValue || 0);
-  if (!invoiceValue || invoiceValue === 0) {
+  const hasExplicitInvoiceValue = input.invoiceValue !== undefined && input.invoiceValue !== null && input.invoiceValue !== ('' as unknown as number);
+  let invoiceValue = hasExplicitInvoiceValue ? round2(input.invoiceValue!) : round2(dAdd(taxableValue, totalGst));
+  if (!hasExplicitInvoiceValue || (invoiceValue === 0 && input.invoiceValue === undefined)) {
     invoiceValue = round2(dAdd(taxableValue, totalGst));
   }
 
@@ -94,7 +95,7 @@ export function computeMonthlySummaryBlock(
 }
 
 export function buildB2bMonthlySummaries(invoices: B2bInvoice[], financialYear?: string): B2bMonthlySummary[] {
-  const fy = financialYear && financialYear !== 'ALL' ? financialYear : '2026-27';
+  const fy = financialYear && financialYear !== 'ALL' ? financialYear : getCurrentIndianFinancialYearLabel();
   const standardMonths = getMonthsForFinancialYear(fy);
   const fyInvoices = invoices.filter((inv) => inv.financialYear === fy);
 
@@ -119,7 +120,7 @@ export function buildB2bMonthlySummaries(invoices: B2bInvoice[], financialYear?:
 }
 
 export function buildB2bDashboardMetrics(invoices: B2bInvoice[], financialYear?: string): B2bDashboardMetrics {
-  const fy = financialYear && financialYear !== 'ALL' ? financialYear : '2026-27';
+  const fy = financialYear && financialYear !== 'ALL' ? financialYear : getCurrentIndianFinancialYearLabel();
   const fyInvoices = fy !== 'ALL' ? invoices.filter((inv) => inv.financialYear === fy) : invoices;
 
   const uniqueSuppliers = new Set(fyInvoices.map((inv) => inv.supplierGstin.toUpperCase())).size;

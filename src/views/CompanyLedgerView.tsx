@@ -410,7 +410,7 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
             ₹{totalRealisedInr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-[11px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-            <span>Avg FX: ₹{averageRate > 0 ? averageRate.toFixed(2) : '93.28'}</span>
+            <span>Avg FX: {averageRate > 0 ? `₹${averageRate.toFixed(2)}` : '—'}</span>
             <span className="text-slate-700 font-medium">Credited to Bank</span>
           </div>
         </div>
@@ -773,7 +773,11 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
                         ${Number(a.allocatedAmountUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-700">
-                        ₹{averageRate > 0 ? averageRate.toFixed(2) : '93.28'}
+                        {a.paymentExchangeRate
+                          ? `₹${a.paymentExchangeRate.toFixed(2)}`
+                          : averageRate > 0
+                          ? `₹${averageRate.toFixed(2)}`
+                          : '—'}
                       </td>
                       <td className="py-3 px-3 text-slate-500">
                         {a.allocatedAt ? a.allocatedAt.split('T')[0] : 'Settled'}

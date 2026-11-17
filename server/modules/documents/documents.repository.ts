@@ -176,6 +176,37 @@ export const documentsRepository = {
     return mapDocument(updated);
   },
 
+  async findLatestPriorVersion(
+    filter: {
+      excludeId: string;
+      shipmentId?: string;
+      paymentId?: string;
+      category: DocumentCategory;
+    },
+    db: DbClient = getPrisma()
+  ): Promise<DocumentRecord | null> {
+    if (!filter.shipmentId && !filter.paymentId) return null;
+    const row = await db.document.findFirst({
+      where: {
+        id: { not: filter.excludeId },
+        category: filter.category,
+        ...(filter.shipmentId ? { shipmentId: filter.shipmentId } : { paymentId: filter.paymentId }),
+      },
+      include: { uploadedByUser: { select: { name: true } } },
+      orderBy: [{ version: 'desc' }, { createdAt: 'desc' }],
+    });
+    return row ? mapDocument(row) : null;
+  },
+
+  async markAsCurrent(id: string, db: DbClient = getPrisma()): Promise<DocumentRecord> {
+    const updated = await db.document.update({
+      where: { id },
+      data: { isCurrent: true },
+      include: { uploadedByUser: { select: { name: true } } },
+    });
+    return mapDocument(updated);
+  },
+
   async delete(id: string, db: DbClient = getPrisma()): Promise<void> {
     await db.document.delete({ where: { id } });
   },

@@ -222,7 +222,13 @@ export const ConsigneeSummaryView: React.FC<ConsigneeSummaryViewProps> = ({
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            onClick={() => void api.downloadExportCsv('Consignee Summary', selectedFyId, 'Consignee_Summary_FY26-27.csv')}
+            onClick={() =>
+              void api.downloadExportCsv(
+                'Consignee Summary',
+                selectedFyId,
+                `Consignee_Summary_${selectedFyId === 'ALL' ? 'All_FYs' : selectedFyId}.csv`
+              )
+            }
             className="h-8 px-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-2xs inline-flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
           >
             <Download size={13} className="text-blue-600" />
@@ -363,7 +369,7 @@ export const ConsigneeSummaryView: React.FC<ConsigneeSummaryViewProps> = ({
                         ₹{c.totalFobInr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3 text-right font-mono tabular-nums text-slate-600">
-                        ₹{c.avgRate > 0 ? c.avgRate.toFixed(2) : '92.10'}
+                        {c.avgRate > 0 ? `₹${c.avgRate.toFixed(2)}` : '—'}
                       </td>
                       <td className="p-3 text-right font-mono tabular-nums font-bold text-emerald-700">
                         ${c.totalRealisedUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
