@@ -57,7 +57,10 @@ export const shipmentsApi = {
     });
   },
 
-  async updateShipment(id: string, updates: Partial<Shipment>): Promise<Shipment> {
+  async updateShipment(
+    id: string,
+    updates: { [K in keyof Shipment]?: Shipment[K] | null } & Record<string, any>
+  ): Promise<Shipment> {
     return http.request<Shipment>(`/shipments/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),

@@ -281,12 +281,74 @@ test('End-to-end API regression suite covering RBAC, FIRC linkage, partial updat
       const putBrcDateOnly = await fetch(`${baseUrl}/api/shipments/${shipment.id}`, {
         method: 'PUT',
         headers: adminHeaders,
-        body: JSON.stringify({ brcDate: '2026-08-12' }),
+        body: JSON.stringify({ brcDate: '2026-08-12', remarks: 'Initial remark' }),
       });
       assert.equal(putBrcDateOnly.status, 200);
-      const updatedShip = (await putBrcDateOnly.json()) as { brcRecord?: { brcNumber?: string; issueDate?: string } };
+      const updatedShip = (await putBrcDateOnly.json()) as {
+        remarks?: string;
+        brcRecord?: { brcNumber?: string; issueDate?: string };
+      };
       assert.equal(updatedShip.brcRecord?.brcNumber, `BRC-${suffix}`);
       assert.equal(updatedShip.brcRecord?.issueDate, '2026-08-12');
+      assert.equal(updatedShip.remarks, 'Initial remark');
+
+      // Clearing remarks and brcDate via null / empty string must clear them while keeping brcNumber
+      const putClearFields = await fetch(`${baseUrl}/api/shipments/${shipment.id}`, {
+        method: 'PUT',
+        headers: adminHeaders,
+        body: JSON.stringify({ brcDate: null, remarks: null }),
+      });
+      assert.equal(putClearFields.status, 200);
+      const clearedShip = (await putClearFields.json()) as {
+        remarks?: string;
+        brcRecord?: { brcNumber?: string; issueDate?: string };
+      };
+      assert.equal(clearedShip.remarks, undefined);
+      assert.equal(clearedShip.brcRecord?.issueDate, undefined);
+      assert.equal(clearedShip.brcRecord?.brcNumber, `BRC-${suffix}`);
+
+      // Inline incentive update via PUT /api/shipments/:id must reject received > claimed
+      const badInlineDbk = await fetch(`${baseUrl}/api/shipments/${shipment.id}`, {
+        method: 'PUT',
+        headers: adminHeaders,
+        body: JSON.stringify({ dbkClaimed: 500, dbkReceived: 800, dbkReceivedDate: '2026-08-15' }),
+      });
+      assert.equal(badInlineDbk.status, 400);
+
+      // Valid inline DBK update + clearing dbkReceivedDate via null
+      const setInlineDbk = await fetch(`${baseUrl}/api/shipments/${shipment.id}`, {
+        method: 'PUT',
+        headers: adminHeaders,
+        body: JSON.stringify({ dbkClaimed: 1000, dbkReceived: 500, dbkReceivedDate: '2026-08-15' }),
+      });
+      assert.equal(setInlineDbk.status, 200);
+
+      const clearDbkDate = await fetch(`${baseUrl}/api/shipments/${shipment.id}`, {
+        method: 'PUT',
+        headers: adminHeaders,
+        body: JSON.stringify({ dbkReceivedDate: null }),
+      });
+      assert.equal(clearDbkDate.status, 200);
+      const clearedDbkShip = (await clearDbkDate.json()) as {
+        incentives?: Array<{ type: string; claimedAmount: number; receivedAmount: number; receivedDate?: string }>;
+      };
+      const dbkEntry = clearedDbkShip.incentives?.find((i) => i.type === 'DRAWBACK');
+      assert.equal(dbkEntry?.claimedAmount, 1000);
+      assert.equal(dbkEntry?.receivedAmount, 500);
+      assert.equal(dbkEntry?.receivedDate, undefined);
+
+      // Remove inline-created DRAWBACK before later DRAWBACK creation test
+      if (dbkEntry && (dbkEntry as any).id) {
+        await fetch(`${baseUrl}/api/shipments/${shipment.id}`, {
+          method: 'PUT',
+          headers: adminHeaders,
+          body: JSON.stringify({ dbkReceived: 0 }),
+        });
+        await fetch(`${baseUrl}/api/incentives/${(dbkEntry as any).id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+      }
 
       // Payment allocation exceeding available balance or shipment balance must fail
       const overAllocRes = await fetch(`${baseUrl}/api/payments/allocate`, {

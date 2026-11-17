@@ -65,21 +65,23 @@ export const incentivesService = {
   async upsertIncentiveForShipment(
     shipmentId: string,
     type: IncentiveType,
-    updates: { claimedAmount?: number; receivedAmount?: number; receivedDate?: string },
+    updates: { claimedAmount?: number; receivedAmount?: number; receivedDate?: string | null },
     db?: DbClient
-  ): Promise<IncentiveRecord> {
+  ): Promise<IncentiveRecord | null> {
     const existing = await incentivesRepository.findByShipmentAndType(shipmentId, type, db);
     if (!existing) {
       const claimed = round2(updates.claimedAmount || 0);
       const received = round2(updates.receivedAmount || 0);
-      return incentivesRepository.create(
+      if (claimed === 0 && received === 0 && !updates.receivedDate) {
+        return null;
+      }
+      return this.createIncentive(
         {
           shipmentId,
           type,
           claimedAmount: claimed,
           receivedAmount: received,
-          status: deriveIncentiveStatus(claimed, received),
-          receivedDate: parseDateOptional(updates.receivedDate),
+          receivedDate: updates.receivedDate || undefined,
         },
         db
       );

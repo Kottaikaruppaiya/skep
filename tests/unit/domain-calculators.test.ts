@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 
 import { normalizeInvoiceKey, normalizePortCode } from '../../server/shared/utils/normalizer.ts';
+import { normalizeInvoiceKey as clientNormalizeInvoiceKey } from '../../src/shared/utils/normalizer.ts';
 import { dAdd, dDiv, dMul, dSub, round2, round4 } from '../../server/shared/utils/decimal.ts';
 import { getMonthsForFinancialYear, normalizeGstrPeriod } from '../../server/shared/utils/gstr-period.ts';
 import { hashPassword, needsPasswordRehash, verifyPassword } from '../../server/shared/utils/password.ts';
@@ -19,11 +20,15 @@ import {
 import { previewB2bWorkbook } from '../../server/modules/b2b/b2b.excel.ts';
 import type { B2bInvoice, GstEntry } from '../../src/types/index.ts';
 
-test('normalizer handles invoice keys and port codes deterministically', () => {
+test('normalizer handles invoice keys and port codes deterministically and matches client normalizer', () => {
+  const samples = ['SKE/26-27/20', 'ske_2026_2027_005', 'INV/PI/26-27/7', 'EXP/5', ''];
   assert.equal(normalizeInvoiceKey('SKE/26-27/20'), 'SKE-26-27-020');
   assert.equal(normalizeInvoiceKey('ske_2026_2027_005'), 'SKE-26-27-005');
   assert.equal(normalizeInvoiceKey('INV/PI/26-27/7'), 'INV-26-27-007');
   assert.equal(normalizeInvoiceKey(''), '');
+  for (const sample of samples) {
+    assert.equal(clientNormalizeInvoiceKey(sample), normalizeInvoiceKey(sample));
+  }
   assert.equal(normalizePortCode(' inmaa1 '), 'INMAA1');
   assert.equal(normalizePortCode(undefined), 'INNSA1');
 });

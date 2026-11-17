@@ -157,8 +157,13 @@ export async function parsePdfBuffer(buffer: Buffer, filename?: string): Promise
         let count = 0;
 
         for (const page of screenshot.pages.slice(0, 2)) {
-          if (page.data) {
-            const ocr = await tesseractModule.recognize(page.data, 'eng');
+          if (page.data && page.data.length >= 8) {
+            const imgBuf = Buffer.isBuffer(page.data) ? page.data : Buffer.from(page.data);
+            const isPng = imgBuf[0] === 0x89 && imgBuf[1] === 0x50 && imgBuf[2] === 0x4e && imgBuf[3] === 0x47;
+            const isJpeg = imgBuf[0] === 0xff && imgBuf[1] === 0xd8 && imgBuf[2] === 0xff;
+            if (!isPng && !isJpeg) continue;
+
+            const ocr = await tesseractModule.recognize(imgBuf, 'eng');
             combinedOcrText += (ocr?.data?.text || '') + '\n';
             totalConfidence += ocr?.data?.confidence || 0;
             count++;

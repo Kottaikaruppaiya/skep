@@ -118,15 +118,15 @@ export const QuickView: React.FC<QuickViewProps> = ({
       const bal = s.balanceDueUsd ?? Math.max(0, s.invoiceValueUsd - totalPaid);
       totalOutstandingUsd += bal;
 
-      if (s.paymentStatus === 'FULLY_PAID') paidCount++;
+      if (s.paymentStatus === 'FULLY_PAID' || s.paymentStatus === 'EXCESS_RECEIVED') paidCount++;
       else if (s.paymentStatus === 'PART_PAID') partPaidCount++;
       else pendingCount++;
 
-      // Realised INR and Forex Gain/Loss
-      const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 0;
+      // Realised INR and Forex Gain/Loss (derived strictly from actual FIRC receipts, never customs SB rate)
+      const realisedRate = s.averageRealisedRate || 0;
       const realisedInr = s.realisedInr ?? (totalPaid * realisedRate);
       const fobInr = s.fobValueInr || 0;
-      if (bal === 0 && totalPaid > 0) {
+      if (bal === 0 && totalPaid > 0 && realisedInr > 0) {
         totalNetForexInr += (realisedInr - fobInr);
       }
 
@@ -174,7 +174,13 @@ export const QuickView: React.FC<QuickViewProps> = ({
 
       // Payment status
       if (paymentStatusFilter !== 'ALL') {
-        if (paymentStatusFilter === 'PAID' && s.paymentStatus !== 'FULLY_PAID') return false;
+        if (
+          paymentStatusFilter === 'PAID' &&
+          s.paymentStatus !== 'FULLY_PAID' &&
+          s.paymentStatus !== 'EXCESS_RECEIVED'
+        ) {
+          return false;
+        }
         if (paymentStatusFilter === 'PART_PAID' && s.paymentStatus !== 'PART_PAID') return false;
         if (paymentStatusFilter === 'PENDING' && s.paymentStatus !== 'UNPAID') return false;
       }
@@ -245,9 +251,9 @@ export const QuickView: React.FC<QuickViewProps> = ({
         consigneeId: editFormData.consigneeId,
         shippingBillDate: editFormData.shippingBillDate || undefined,
         invoiceValueUsd: Number(editFormData.invoiceValueUsd),
-        remarks: editFormData.remarks || undefined,
+        remarks: editFormData.remarks.trim() || null,
         ...(editFormData.dbkClaimed !== undefined ? { dbkClaimed: Number(editFormData.dbkClaimed) } : {}),
-        ...(editFormData.dbkReceivedDate ? { dbkReceivedDate: editFormData.dbkReceivedDate } : {}),
+        dbkReceivedDate: editFormData.dbkReceivedDate || null,
       } as any);
 
       // Persist to local list immediately
@@ -628,13 +634,13 @@ export const QuickView: React.FC<QuickViewProps> = ({
                     derivedStatus = 'UNPAID';
                   }
 
-                  // Realised INR & Forex live recalculation
-                  const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 0;
+                  // Realised INR & Forex live recalculation (never substitute SB rate for payment rate)
+                  const realisedRate = s.averageRealisedRate || 0;
                   const realisedInr = s.realisedInr ?? (totalPaid * realisedRate);
                   const currentFobInr = isEditingThisRow && editFormData
                     ? Math.round(currentInvUsd * (s.sbExchangeRate || 0) * 100) / 100
                     : s.fobValueInr;
-                  const netForexInr = balUsd === 0 && totalPaid > 0 ? realisedInr - currentFobInr : 0;
+                  const netForexInr = balUsd === 0 && totalPaid > 0 && realisedInr > 0 ? realisedInr - currentFobInr : 0;
 
                   // Incentives live recalculation
                   const dbk = s.incentives?.find((i) => i.type === 'DRAWBACK');
@@ -662,12 +668,17 @@ export const QuickView: React.FC<QuickViewProps> = ({
                       brcDeadlineDisplay &&
                       new Date(brcDeadlineDisplay).getTime() < Date.now());
 
-                  // Days pending calculation
+                  // Realisation date(s) across all linked allocations or days pending
                   let receivedOnText = 'Pending';
                   if (s.allocations && s.allocations.length > 0) {
-                    receivedOnText =
-                      s.allocations[0].paymentCreditDate ||
-                      (s.allocations[0].allocatedAt ? s.allocations[0].allocatedAt.split('T')[0] : 'Settled');
+                    const dates = Array.from(
+                      new Set(
+                        s.allocations
+                          .map((a) => a.paymentCreditDate || (a.allocatedAt ? a.allocatedAt.split('T')[0] : ''))
+                          .filter(Boolean)
+                      )
+                    );
+                    receivedOnText = dates.length > 0 ? dates.join(', ') : 'Settled';
                   } else if (s.shippingBillDate) {
                     const daysAgo = Math.floor(
                       (Date.now() - new Date(s.shippingBillDate).getTime()) / (1000 * 60 * 60 * 24)
@@ -855,7 +866,7 @@ export const QuickView: React.FC<QuickViewProps> = ({
                           {dbkRecd >= dbkClaimed && dbkClaimed > 0
                             ? 'RECEIVED'
                             : dbkRecd > 0
-                            ? 'PARTIAL'
+                            ? 'PART_RECEIVED'
                             : 'PENDING'}
                         </span>
                       </td>

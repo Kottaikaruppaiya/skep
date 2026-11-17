@@ -12,8 +12,8 @@ interface ShipmentBrcTabProps {
   isEditingBrc: boolean;
   brcNumber: string;
   setBrcNumber: (v: string) => void;
-  brcStatus: 'PENDING' | 'ISSUED' | 'REALISED';
-  setBrcStatus: (v: 'PENDING' | 'ISSUED' | 'REALISED') => void;
+  brcStatus: 'PENDING' | 'ISSUED' | 'REALISED' | 'OVERDUE';
+  setBrcStatus: (v: 'PENDING' | 'ISSUED' | 'REALISED' | 'OVERDUE') => void;
   brcIssueDate: string;
   setBrcIssueDate: (v: string) => void;
   brcRealisationDate: string;
@@ -64,6 +64,8 @@ export const ShipmentBrcTab: React.FC<ShipmentBrcTabProps> = ({
                   ? 'bg-emerald-100 text-emerald-800'
                   : shipment.brcRecord?.status === 'ISSUED'
                   ? 'bg-blue-100 text-blue-800'
+                  : shipment.brcRecord?.status === 'OVERDUE'
+                  ? 'bg-rose-100 text-rose-800'
                   : 'bg-amber-100 text-amber-800'
               }`}
             >
@@ -114,6 +116,7 @@ export const ShipmentBrcTab: React.FC<ShipmentBrcTabProps> = ({
                   <option value="PENDING">PENDING</option>
                   <option value="ISSUED">ISSUED</option>
                   <option value="REALISED">REALISED</option>
+                  <option value="OVERDUE">OVERDUE</option>
                 </select>
               </div>
               <div>

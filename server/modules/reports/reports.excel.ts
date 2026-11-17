@@ -90,8 +90,9 @@ export function buildExportWorkbookBuffer(input: {
     const inrReceived = round2(s.realisedInr || 0);
     const fobInr = round2(s.fobValueInr || 0);
     const diffUsd = round2(dSub(s.invoiceValueUsd || 0, usdReceived));
-    const forexVarianceInr = inrReceived > 0 ? round2(dSub(inrReceived, fobInr)) : 0;
-    const gainLossTag = inrReceived === 0 ? 'NIL' : forexVarianceInr > 0 ? 'GAIN' : forexVarianceInr < 0 ? 'LOSS' : 'NIL';
+    const isFullyRealised = diffUsd <= 0 && usdReceived > 0 && inrReceived > 0;
+    const forexVarianceInr = isFullyRealised ? round2(dSub(inrReceived, fobInr)) : 0;
+    const gainLossTag = !isFullyRealised ? 'NIL' : forexVarianceInr > 0 ? 'GAIN' : forexVarianceInr < 0 ? 'LOSS' : 'NIL';
     const avgRealisedRate =
       usdReceived > 0 && inrReceived > 0
         ? round2(dDiv(inrReceived, usdReceived))
@@ -227,7 +228,17 @@ export function buildExportWorkbookBuffer(input: {
     const rodtepPending = Math.max(0, round2(dSub(rodtepClaimed, rodtepRecd)));
     const rosctlPending = Math.max(0, round2(dSub(rosctlClaimed, rosctlRecd)));
     const totalIncentivesPending = round2(dAdd(dAdd(dbkPending, rodtepPending), rosctlPending));
-    const netForexInr = totalRealisedInr > 0 ? round2(dSub(totalRealisedInr, totalFobInr)) : 0;
+    const netForexInr = round2(
+      cShipments.reduce((sum, s) => {
+        const sPaid = round2(s.totalPaidUsd || 0);
+        const sInr = round2(s.realisedInr || 0);
+        const sDiff = round2(dSub(s.invoiceValueUsd || 0, sPaid));
+        if (sDiff <= 0 && sPaid > 0 && sInr > 0) {
+          return dAdd(sum, dSub(sInr, round2(s.fobValueInr || 0)));
+        }
+        return sum;
+      }, 0)
+    );
 
     return {
       Consignee: c.name,

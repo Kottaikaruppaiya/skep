@@ -148,7 +148,15 @@ export const ConsigneeSummaryView: React.FC<ConsigneeSummaryViewProps> = ({
     const rodtepPending = Math.max(0, rodtepClaimed - rodtepRecd);
     const rosctlPending = Math.max(0, rosctlClaimed - rosctlRecd);
     const totalIncentivesPending = dbkPending + rodtepPending + rosctlPending;
-    const netForexInr = totalRealisedInr > 0 ? totalRealisedInr - totalFobInr : 0;
+    const netForexInr = cShipments.reduce((sum, s) => {
+      const sPaid = Number(s.totalPaidUsd || 0);
+      const sInr = Number(s.realisedInr || 0);
+      const sBal = s.balanceDueUsd ?? Math.max(0, Number(s.invoiceValueUsd || 0) - sPaid);
+      if (sBal <= 0 && sPaid > 0 && sInr > 0) {
+        return sum + (sInr - Number(s.fobValueInr || 0));
+      }
+      return sum;
+    }, 0);
 
     const lifetimeInvoicedUsd = cLifetimeShipments.reduce((sum, s) => sum + (Number(s.invoiceValueUsd) || 0), 0);
     const lifetimeRealisedUsd = cLifetimeShipments.reduce((sum, s) => sum + (Number(s.totalPaidUsd) || 0), 0);

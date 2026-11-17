@@ -275,11 +275,18 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
   // Realised calculations
   const totalPaidUsd = selectedShipment?.totalPaidUsd || 0;
   const balanceDueUsd = selectedShipment?.balanceDueUsd ?? Math.max(0, (selectedShipment?.invoiceValueUsd || 0) - totalPaidUsd);
-  const effectiveRate = selectedShipment?.averageRealisedRate || selectedShipment?.sbExchangeRate || 0;
+  const effectiveRate = selectedShipment?.averageRealisedRate || 0;
   const realisedInr = selectedShipment?.realisedInr ?? (totalPaidUsd * effectiveRate);
   const fobInr = selectedShipment?.fobValueInr || 0;
   const differenceInr = realisedInr - fobInr;
-  const netForexInr = balanceDueUsd === 0 ? differenceInr : 0;
+  const netForexInr = balanceDueUsd === 0 && totalPaidUsd > 0 && realisedInr > 0 ? differenceInr : 0;
+  const allocationDates = Array.from(
+    new Set(
+      (selectedShipment?.allocations || [])
+        .map((a) => a.paymentCreditDate || (a.allocatedAt ? a.allocatedAt.split('T')[0] : ''))
+        .filter(Boolean)
+    )
+  ).join(', ');
   const allocationBanks = Array.from(
     new Set((selectedShipment?.allocations || []).map((a) => a.paymentBankName).filter(Boolean))
   ).join(', ');
@@ -763,10 +770,7 @@ export const InvoiceLookupView: React.FC<InvoiceLookupViewProps> = ({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="text-[10px] font-bold text-slate-500 block uppercase">Col S: Payment Date</span>
                   <div className="font-mono text-slate-800 font-semibold mt-1">
-                    {selectedShipment.allocations?.[0]?.paymentCreditDate ||
-                      (selectedShipment.allocations?.[0]?.allocatedAt
-                        ? selectedShipment.allocations[0].allocatedAt.split('T')[0]
-                        : 'Pending')}
+                    {allocationDates || 'Pending'}
                   </div>
                   <span className="text-[10px] text-slate-400 block mt-1">From linked FIRC Inward Remittance</span>
                 </div>

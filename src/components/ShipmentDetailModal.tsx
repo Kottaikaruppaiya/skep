@@ -49,7 +49,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   // BRC Edit state
   const [isEditingBrc, setIsEditingBrc] = useState(false);
   const [brcNumber, setBrcNumber] = useState('');
-  const [brcStatus, setBrcStatus] = useState<'PENDING' | 'ISSUED' | 'REALISED'>('PENDING');
+  const [brcStatus, setBrcStatus] = useState<'PENDING' | 'ISSUED' | 'REALISED' | 'OVERDUE'>('PENDING');
   const [brcIssueDate, setBrcIssueDate] = useState('');
   const [brcRealisationDate, setBrcRealisationDate] = useState('');
   const [brcUploadMode, setBrcUploadMode] = useState<'SINGLE' | 'MULTIPLE'>('SINGLE');
@@ -249,12 +249,12 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     setActionError(null);
     try {
       await api.updateBrc(shipment.brcRecord?.id || shipment.id, {
-        brcNumber,
+        brcNumber: brcNumber.trim() || null,
         status: brcStatus,
-        issueDate: brcIssueDate || undefined,
-        realisationDate: brcRealisationDate || undefined,
+        issueDate: brcIssueDate || null,
+        realisationDate: brcRealisationDate || null,
         uploadMode: brcUploadMode,
-        remarks: brcRemarks || undefined,
+        remarks: brcRemarks.trim() || null,
       });
       setIsEditingBrc(false);
       await loadData();
@@ -322,9 +322,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
         status: incStatus as any,
         claimedAmount: Number(incClaimed),
         receivedAmount: Number(incReceived),
-        receivedDate: incReceivedDate || undefined,
-        scrollNumber: incScrollNo || undefined,
-        remarks: incRemarks || undefined,
+        receivedDate: incReceivedDate || null,
+        scrollNumber: incScrollNo.trim() || null,
+        remarks: incRemarks.trim() || null,
       });
       setEditingIncentive(null);
       await loadData();

@@ -8,7 +8,12 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 
 import { createApp } from '../../server/app.ts';
-import { checkDatabaseHealth, disconnectPrisma } from '../../server/config/prisma.ts';
+import {
+  checkDatabaseHealth,
+  disconnectPrisma,
+  isDatabaseConfigured,
+  isMockDatabaseAllowed,
+} from '../../server/config/prisma.ts';
 
 async function withTestServer(fn: (baseUrl: string) => Promise<void>) {
   const app = createApp();
@@ -38,8 +43,9 @@ test('GET /health responds with database status JSON', async () => {
 
 test('Protected API routes fail closed when unauthenticated or when database is unavailable', async () => {
   const dbHealth = await checkDatabaseHealth();
+  const dbReady = dbHealth === 'connected' || (!isDatabaseConfigured() && isMockDatabaseAllowed());
   await withTestServer(async (baseUrl) => {
-    const expectedStatuses = dbHealth === 'connected' ? [401] : [503];
+    const expectedStatuses = dbReady ? [401] : [503];
 
     const resShipments = await fetch(`${baseUrl}/api/shipments`);
     assert.ok(expectedStatuses.includes(resShipments.status), `Unexpected status ${resShipments.status}`);

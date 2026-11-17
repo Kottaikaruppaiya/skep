@@ -7,6 +7,17 @@ import type { BankMaster, ConsigneeMaster, FinancialYear } from '../../../src/ty
 import { getPrisma, type DbClient } from '../../config/prisma.ts';
 import { toDateOnlyString, toIsoString } from '../../shared/utils/date.ts';
 
+function deriveFyDatesFromLabel(label: string): { start: string; end: string } {
+  const match = String(label || '').match(/(\d{4})/);
+  const now = new Date();
+  const fallbackStartYear = now.getUTCMonth() + 1 >= 4 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  const startYear = match ? parseInt(match[1], 10) : fallbackStartYear;
+  return {
+    start: `${startYear}-04-01`,
+    end: `${startYear + 1}-03-31`,
+  };
+}
+
 function mapFinancialYear(row: {
   id: string;
   label: string;
@@ -14,11 +25,12 @@ function mapFinancialYear(row: {
   endDate: Date;
   isCurrent: boolean;
 }): FinancialYear {
+  const fallbackDates = deriveFyDatesFromLabel(row.label);
   return {
     id: row.id,
     label: row.label,
-    startDate: toDateOnlyString(row.startDate) || '2026-04-01',
-    endDate: toDateOnlyString(row.endDate) || '2027-03-31',
+    startDate: toDateOnlyString(row.startDate) || fallbackDates.start,
+    endDate: toDateOnlyString(row.endDate) || fallbackDates.end,
     isCurrent: row.isCurrent,
   };
 }

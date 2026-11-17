@@ -106,10 +106,10 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
 
       const totalPaid = s.totalPaidUsd || 0;
       const balUsd = s.balanceDueUsd ?? Math.max(0, s.invoiceValueUsd - totalPaid);
-      const realisedRate = s.averageRealisedRate || s.sbExchangeRate || 0;
+      const realisedRate = s.averageRealisedRate || 0;
       const realisedInr = s.realisedInr ?? (totalPaid * realisedRate);
       const fobInr = s.fobValueInr || 0;
-      const forex = balUsd === 0 && totalPaid > 0 ? realisedInr - fobInr : 0;
+      const forex = balUsd === 0 && totalPaid > 0 && realisedInr > 0 ? realisedInr - fobInr : 0;
 
       stats[matchedBuyer].bills += 1;
       stats[matchedBuyer].billedUsd += s.invoiceValueUsd;
@@ -237,9 +237,13 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
         }
 
         const allocUsd = Number(a.allocatedAmountUsd || 0);
+        const derivedPaymentRate =
+          payment && payment.verifiedAmount > 0 && payment.inrAmount
+            ? payment.inrAmount / payment.verifiedAmount
+            : 0;
         const fxRate =
-          Number(a.paymentExchangeRate || payment?.exchangeRate || 0) ||
-          (s.totalPaidUsd && s.realisedInr ? s.realisedInr / s.totalPaidUsd : s.averageRealisedRate || s.sbExchangeRate || 0);
+          Number(a.paymentExchangeRate || payment?.exchangeRate || derivedPaymentRate || 0) ||
+          (s.totalPaidUsd && s.realisedInr ? s.realisedInr / s.totalPaidUsd : s.averageRealisedRate || 0);
         const allocInr = allocUsd * fxRate;
 
         map[fallbackKey].shipmentIds.add(s.id);
@@ -274,8 +278,10 @@ export const SummaryReportsView: React.FC<SummaryReportsViewProps> = ({
 
     for (const s of shipments) {
       const d = new Date(s.invoiceDate);
-      const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const mLabel = d.toLocaleString('default', { month: 'short', year: 'numeric' });
+      const mKey = /^\d{4}-\d{2}/.test(s.invoiceDate || '')
+        ? s.invoiceDate.slice(0, 7)
+        : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const mLabel = d.toLocaleString('default', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 
       if (!map[mKey]) {
         map[mKey] = {

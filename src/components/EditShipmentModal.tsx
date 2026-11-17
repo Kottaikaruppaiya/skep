@@ -93,11 +93,11 @@ export const EditShipmentModal: React.FC<EditShipmentModalProps> = ({
         shippingBillDate: shippingBillDate || undefined,
         sbExchangeRate: Number(sbExchangeRate),
         fobValueInr: Number(fobValueInr),
-        blNumber: blNumber.trim() || undefined,
-        blDate: blDate || undefined,
-        vesselName: vesselName.trim() || undefined,
+        blNumber: blNumber.trim() || null,
+        blDate: blDate || null,
+        vesselName: vesselName.trim() || null,
         reviewStatus,
-        remarks: remarks.trim() || undefined,
+        remarks: remarks.trim() || null,
       });
 
       onSuccess();

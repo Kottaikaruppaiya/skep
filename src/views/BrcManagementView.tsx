@@ -89,13 +89,13 @@ export const BrcManagementView: React.FC<BrcManagementViewProps> = ({
     try {
       const targetId = editingBrcShipment.brcRecord?.id || editingBrcShipment.id;
       await api.updateBrc(targetId, {
-        brcNumber,
-        issueDate: issueDate || undefined,
-        realisationDate: realisationDate || undefined,
+        brcNumber: brcNumber.trim() || null,
+        issueDate: issueDate || null,
+        realisationDate: realisationDate || null,
         uploadMode,
-        statutoryDeadline: statutoryDeadline || undefined,
+        statutoryDeadline: statutoryDeadline || null,
         status,
-        remarks,
+        remarks: remarks.trim() || null,
       });
       setEditingBrcShipment(null);
       loadData();

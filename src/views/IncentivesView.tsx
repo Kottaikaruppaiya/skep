@@ -105,9 +105,9 @@ export const IncentivesView: React.FC<IncentivesViewProps> = ({
     setEditingInc({ inc, invoiceNo });
     setClaimedAmount(inc.claimedAmount || 0);
     setReceivedAmount(inc.receivedAmount || 0);
-    setReceivedDate(inc.receivedDate || new Date().toISOString().split('T')[0]);
+    setReceivedDate(inc.receivedDate || '');
     setScrollNumber(inc.scrollNumber || '');
-    setStatus(inc.status || 'RECEIVED');
+    setStatus(inc.status || 'PENDING');
     setRemarks(inc.remarks || '');
     setEditError(null);
   };
@@ -121,10 +121,10 @@ export const IncentivesView: React.FC<IncentivesViewProps> = ({
       await api.updateIncentive(editingInc.inc.id, {
         claimedAmount: Number(claimedAmount),
         receivedAmount: Number(receivedAmount),
-        receivedDate: receivedDate || undefined,
-        scrollNumber: scrollNumber || undefined,
+        receivedDate: receivedDate || null,
+        scrollNumber: scrollNumber.trim() || null,
         status,
-        remarks: remarks || undefined,
+        remarks: remarks.trim() || null,
       });
       setEditingInc(null);
       loadData();

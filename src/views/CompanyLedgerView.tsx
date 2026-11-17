@@ -113,8 +113,8 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
   const filteredShipments = useMemo(() => {
     return companyShipments.filter((s) => {
       // Status filter
-      if (statusFilter === 'FULLY_PAID' && s.paymentStatus !== 'FULLY_PAID') return false;
-      if (statusFilter === 'PENDING' && (s.paymentStatus === 'FULLY_PAID' || Number(s.balanceDueUsd || 0) <= 0)) return false;
+      if (statusFilter === 'FULLY_PAID' && s.paymentStatus !== 'FULLY_PAID' && s.paymentStatus !== 'EXCESS_RECEIVED') return false;
+      if (statusFilter === 'PENDING' && (s.paymentStatus === 'FULLY_PAID' || s.paymentStatus === 'EXCESS_RECEIVED' || Number(s.balanceDueUsd || 0) <= 0)) return false;
       if (statusFilter === 'BRC_REALISED' && s.brcRecord?.status !== 'REALISED') return false;
       if (statusFilter === 'BRC_PENDING' && s.brcRecord?.status === 'REALISED') return false;
 
@@ -200,8 +200,12 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
   );
   const totalIncentivesInr = totalDbk + totalRodtep + totalRosctl;
 
-  const fullyPaidCount = companyShipments.filter((s) => s.paymentStatus === 'FULLY_PAID').length;
-  const pendingCount = companyShipments.filter((s) => s.paymentStatus !== 'FULLY_PAID' && Number(s.balanceDueUsd || 0) > 0).length;
+  const fullyPaidCount = companyShipments.filter(
+    (s) => s.paymentStatus === 'FULLY_PAID' || s.paymentStatus === 'EXCESS_RECEIVED'
+  ).length;
+  const pendingCount = companyShipments.filter(
+    (s) => s.paymentStatus !== 'FULLY_PAID' && s.paymentStatus !== 'EXCESS_RECEIVED' && Number(s.balanceDueUsd || 0) > 0
+  ).length;
   const brcRealisedCount = companyShipments.filter((s) => s.brcRecord?.status === 'REALISED').length;
   const brcPendingCount = companyShipments.filter((s) => s.brcRecord?.status !== 'REALISED').length;
 
@@ -595,7 +599,16 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
                   </tr>
                 ) : (
                   filteredShipments.map((s) => {
-                    const alloc = s.allocations?.[0];
+                    const irms = Array.from(
+                      new Set((s.allocations || []).map((a) => a.paymentIrm).filter(Boolean))
+                    ).join(', ');
+                    const allocDates = Array.from(
+                      new Set(
+                        (s.allocations || [])
+                          .map((a) => a.paymentCreditDate || (a.allocatedAt ? a.allocatedAt.split('T')[0] : ''))
+                          .filter(Boolean)
+                      )
+                    ).join(', ');
                     const brc = s.brcRecord;
 
                     return (
@@ -639,11 +652,11 @@ export const CompanyLedgerView: React.FC<CompanyLedgerViewProps> = ({
 
                         {/* FIRC / IRM */}
                         <td className="py-3.5 px-3">
-                          {alloc?.paymentIrm ? (
+                          {irms ? (
                             <div>
-                              <span className="font-mono text-blue-700 font-semibold">{alloc.paymentIrm}</span>
+                              <span className="font-mono text-blue-700 font-semibold">{irms}</span>
                               <div className="text-[10px] text-slate-400">
-                                {alloc.allocatedAt ? alloc.allocatedAt.split('T')[0] : 'Allocated'}
+                                {allocDates || 'Allocated'}
                               </div>
                             </div>
                           ) : (

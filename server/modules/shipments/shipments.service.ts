@@ -657,7 +657,12 @@ export const shipmentsService = {
         {
           claimedAmount: parseOptionalNum(updates.dbkClaimed),
           receivedAmount: parseOptionalNum(updates.dbkReceived),
-          receivedDate: updates.dbkReceivedDate === 'DEL' ? undefined : updates.dbkReceivedDate,
+          receivedDate:
+            updates.dbkReceivedDate === null ||
+            updates.dbkReceivedDate === 'DEL' ||
+            updates.dbkReceivedDate === ''
+              ? null
+              : updates.dbkReceivedDate,
         },
         tx
       );

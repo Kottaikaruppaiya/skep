@@ -341,7 +341,9 @@ export const ShipmentListView: React.FC<ShipmentListViewProps> = ({
 
               {!loading &&
                 displayedShipments.map((s, idx) => {
-                  const alloc = s.allocations?.[0];
+                  const allIrms = Array.from(
+                    new Set((s.allocations || []).map((a) => a.paymentIrm).filter(Boolean))
+                  ).join(', ');
                   const rowNum = pageSize === 'ALL' ? idx + 1 : (currentPage - 1) * pageSize + idx + 1;
                   return (
                     <tr
@@ -371,7 +373,7 @@ export const ShipmentListView: React.FC<ShipmentListViewProps> = ({
                         ₹{s.fobValueInr.toLocaleString()}
                       </td>
                       <td className="p-3 font-mono text-blue-700 font-medium">
-                        {alloc?.paymentIrm || (s.hasFircEvidence ? 'FIRC Linked' : '—')}
+                        {allIrms || (s.hasFircEvidence ? 'FIRC Linked' : '—')}
                       </td>
                       <td className="p-3 text-right font-bold text-emerald-700">
                         ${(s.totalPaidUsd || 0).toLocaleString()}
@@ -384,6 +386,8 @@ export const ShipmentListView: React.FC<ShipmentListViewProps> = ({
                           className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             s.paymentStatus === 'FULLY_PAID'
                               ? 'bg-emerald-100 text-emerald-800'
+                              : s.paymentStatus === 'EXCESS_RECEIVED'
+                              ? 'bg-purple-100 text-purple-800'
                               : s.paymentStatus === 'PART_PAID'
                               ? 'bg-amber-100 text-amber-800'
                               : 'bg-red-100 text-red-800'
@@ -399,6 +403,8 @@ export const ShipmentListView: React.FC<ShipmentListViewProps> = ({
                               ? 'bg-emerald-100 text-emerald-800'
                               : s.brcRecord?.status === 'ISSUED'
                               ? 'bg-blue-100 text-blue-800'
+                              : s.brcRecord?.status === 'OVERDUE'
+                              ? 'bg-rose-100 text-rose-800'
                               : 'bg-slate-100 text-slate-700'
                           }`}
                         >
